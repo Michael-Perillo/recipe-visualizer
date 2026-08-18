@@ -10,6 +10,11 @@ export type Quantity = {
   scalable: boolean;
 };
 
+export type Measurement = {
+  value: number;
+  unit: string;
+};
+
 export type IngredientStyle =
   | "auto"
   | "dry"
@@ -23,6 +28,7 @@ export type Ingredient = {
   id: string;
   name: string;
   quantity: Quantity;
+  alternateMeasurements?: Measurement[];
   note?: string;
   visualStyle: IngredientStyle;
 };
@@ -80,6 +86,8 @@ export type PersistedLibraryV1 = {
   view: DiagramView;
   theme: Theme;
   servingsByRecipe: Record<string, number>;
+  updatedAt?: number;
+  originId?: string;
 };
 
 export const INGREDIENT_STYLE_LABELS: Record<IngredientStyle, string> = {

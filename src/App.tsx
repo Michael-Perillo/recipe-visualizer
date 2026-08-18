@@ -5,6 +5,7 @@ import {
   ChevronRight,
   CircleAlert,
   Copy,
+  DatabaseBackup,
   Download,
   FileDown,
   FileJson,
@@ -14,6 +15,7 @@ import {
   PanelLeftOpen,
   Plus,
   RotateCcw,
+  RefreshCcw,
   Sun,
   Trash2,
   Upload,
@@ -31,11 +33,16 @@ import {
 import { FlowDiagram } from "./components/diagram/FlowDiagram";
 import { MatrixDiagram } from "./components/diagram/MatrixDiagram";
 import { RecipeEditor } from "./components/RecipeEditor";
-import { validateRecipe } from "./domain/recipe";
+import { RECIPE_LIMITS, normalizeServings } from "./domain/limits";
+import {
+  normalizeRecipeStepOrder,
+  validateRecipe,
+} from "./domain/recipe";
 import { recipeDocumentSchema } from "./domain/schema";
 import {
   buildExportName,
   downloadPng,
+  downloadRecoveryJson,
   downloadRecipeJson,
   downloadSvg,
 } from "./lib/export";
@@ -100,6 +107,16 @@ function LibraryControls() {
     const file = event.target.files?.[0];
     event.target.value = "";
     if (!file) return;
+    if (recipes.length >= RECIPE_LIMITS.recipes) {
+      setImportError(
+        `This browser library already has the maximum of ${RECIPE_LIMITS.recipes} recipes.`,
+      );
+      return;
+    }
+    if (file.size > RECIPE_LIMITS.importBytes) {
+      setImportError("Recipe JSON files must be smaller than 1 MB.");
+      return;
+    }
     try {
       const parsed = recipeDocumentSchema.safeParse(
         JSON.parse(await file.text()),
@@ -108,8 +125,21 @@ function LibraryControls() {
         setImportError("That file is not a Recipe Visualizer v1 document.");
         return;
       }
+      const issues = validateRecipe(parsed.data);
+      if (issues.length > 0) {
+        setImportError(
+          `That recipe cannot be imported: ${issues
+            .slice(0, 3)
+            .map((issue) => issue.message)
+            .join(" ")}`,
+        );
+        return;
+      }
       setImportError("");
-      dispatch({ type: "import-recipe", recipe: parsed.data });
+      dispatch({
+        type: "import-recipe",
+        recipe: normalizeRecipeStepOrder(parsed.data),
+      });
     } catch {
       setImportError("The selected file is not valid JSON.");
     }
@@ -178,7 +208,16 @@ function LibraryControls() {
             <button
               type="button"
               className="menu-item"
-              onClick={() => downloadRecipeJson(activeRecipe)}
+              onClick={() => {
+                const issues = validateRecipe(activeRecipe);
+                if (issues.length > 0) {
+                  setImportError(
+                    `Fix this recipe before exporting it: ${issues[0].message}`,
+                  );
+                  return;
+                }
+                downloadRecipeJson(activeRecipe);
+              }}
             >
               <FileJson className="size-4" />
               Export recipe JSON
@@ -272,6 +311,113 @@ function LibraryControls() {
         </button>
       </div>
     </>
+  );
+}
+
+function DataSafetyNotices() {
+  const {
+    recoveryNotice,
+    hasExternalConflict,
+    dismissRecovery,
+    resetLocalData,
+    useExternalChanges,
+    keepLocalChanges,
+  } = useAppState();
+
+  if (!recoveryNotice && !hasExternalConflict) return null;
+
+  return (
+    <div className="fixed inset-x-3 bottom-3 z-[90] mx-auto flex max-w-2xl flex-col gap-2">
+      {recoveryNotice ? (
+        <section
+          role="alert"
+          className="rounded-2xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-2xl dark:border-amber-500/30 dark:bg-amber-950 dark:text-amber-50"
+        >
+          <div className="flex items-start gap-3">
+            <DatabaseBackup className="mt-0.5 size-5 shrink-0" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-black">Saved data needed recovery</p>
+              <p className="mt-1 text-xs font-semibold leading-relaxed">
+                {recoveryNotice.salvagedRecipes > 0
+                  ? `${recoveryNotice.salvagedRecipes} structurally valid recipe${
+                      recoveryNotice.salvagedRecipes === 1 ? " was" : "s were"
+                    } recovered.`
+                  : "The app opened a safe default library."}{" "}
+                {recoveryNotice.backupAvailable
+                  ? "The original data is preserved in this browser."
+                  : "Browser storage was unavailable, so the original data has not been overwritten."}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {recoveryNotice.raw ? (
+                  <button
+                    type="button"
+                    className="min-h-9 rounded-xl bg-stone-950 px-3 text-xs font-black text-white dark:bg-lime-300 dark:text-stone-950"
+                    onClick={() => downloadRecoveryJson(recoveryNotice.raw!)}
+                  >
+                    Download recovery JSON
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  className="min-h-9 rounded-xl border border-current/20 px-3 text-xs font-black"
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Reset local Recipe Visualizer data? Download the recovery JSON first if you may need it.",
+                      )
+                    ) {
+                      resetLocalData();
+                    }
+                  }}
+                >
+                  Reset local data
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 px-2 text-xs font-black"
+                  onClick={dismissRecovery}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      {hasExternalConflict ? (
+        <section
+          role="alert"
+          className="rounded-2xl border border-sky-300 bg-sky-50 p-4 text-sky-950 shadow-2xl dark:border-sky-500/30 dark:bg-sky-950 dark:text-sky-50"
+        >
+          <div className="flex items-start gap-3">
+            <RefreshCcw className="mt-0.5 size-5 shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-black">Another tab changed this library</p>
+              <p className="mt-1 text-xs font-semibold">
+                Choose which complete browser copy to keep. Changes are not merged.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  className="min-h-9 rounded-xl bg-stone-950 px-3 text-xs font-black text-white dark:bg-lime-300 dark:text-stone-950"
+                  onClick={useExternalChanges}
+                >
+                  Load other tab
+                </button>
+                <button
+                  type="button"
+                  className="min-h-9 rounded-xl border border-current/20 px-3 text-xs font-black"
+                  onClick={keepLocalChanges}
+                >
+                  Keep this tab
+                </button>
+              </div>
+            </div>
+          </div>
+        </section>
+      ) : null}
+    </div>
   );
 }
 
@@ -376,18 +522,21 @@ function PreviewToolbar({
           <input
             type="number"
             min="1"
+            max={RECIPE_LIMITS.servings}
             step="1"
             aria-label="Custom servings"
             title="Custom servings"
             className="h-8 w-12 rounded-lg border border-black/10 bg-transparent px-1 text-center text-xs font-black outline-none focus:border-lime-500 dark:border-white/10"
             value={servings}
-            onChange={(event) =>
+            onChange={(event) => {
+              const next = normalizeServings(event.target.value);
+              if (next === undefined) return;
               dispatch({
                 type: "set-servings",
                 recipeId: activeRecipe.id,
-                servings: Math.max(1, Number(event.target.value) || 1),
-              })
-            }
+                servings: next,
+              });
+            }}
           />
         </div>
 
@@ -537,9 +686,7 @@ function DiagramCanvas({
     observer.observe(scrollArea);
     return () => observer.disconnect();
   }, [
-    activeRecipe.id,
-    activeRecipe.ingredients.length,
-    activeRecipe.steps.length,
+    activeRecipe,
     svgRef,
     view,
   ]);
@@ -622,6 +769,7 @@ function Workspace() {
         <div className="hidden h-7 w-px bg-black/10 sm:block dark:bg-white/10" />
         <LibraryControls />
       </header>
+      <DataSafetyNotices />
 
       <nav
         aria-label="Mobile workspace view"

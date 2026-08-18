@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import { DEFAULT_RECIPE } from "../data/defaultRecipe";
 import {
   buildRecipeGraph,
+  formatAlternateMeasurements,
   formatAmount,
   formatIngredientQuantity,
+  normalizeRecipeStepOrder,
   resolveIngredientStyle,
   scaleIngredient,
   validateRecipe,
@@ -23,11 +25,14 @@ describe("quantity formatting and scaling", () => {
       id: "flour",
       name: "flour",
       quantity: { value: 0.5, unit: "cup", scalable: true },
+      alternateMeasurements: [{ value: 80, unit: "g" }],
       visualStyle: "auto",
     };
     const scaled = scaleIngredient(ingredient, 4, 6);
     expect(scaled.quantity.value).toBe(0.75);
     expect(formatIngredientQuantity(scaled)).toBe("3/4 cup");
+    expect(scaled.alternateMeasurements?.[0].value).toBe(120);
+    expect(formatAlternateMeasurements(scaled)).toBe("120 g");
 
     const salt: Ingredient = {
       id: "salt",
@@ -37,6 +42,17 @@ describe("quantity formatting and scaling", () => {
     };
     expect(scaleIngredient(salt, 4, 6)).toBe(salt);
     expect(formatIngredientQuantity(salt)).toBe("to taste");
+  });
+
+  it("renders scaled alternate conversions as compact decimals", () => {
+    const butter = scaleIngredient(
+      DEFAULT_RECIPE.ingredients[0],
+      DEFAULT_RECIPE.baseServings,
+      2,
+    );
+
+    expect(formatIngredientQuantity(butter)).toBe("2 oz");
+    expect(formatAlternateMeasurements(butter)).toBe("57.5 g");
   });
 });
 
@@ -127,6 +143,40 @@ describe("recipe graph validation and layout", () => {
     };
     expect(validateRecipe(recipe).some((issue) => issue.code === "cycle")).toBe(
       true,
+    );
+  });
+
+  it("rejects invalid numeric values before persistence", () => {
+    const recipe: RecipeDocumentV1 = {
+      ...DEFAULT_RECIPE,
+      ingredients: DEFAULT_RECIPE.ingredients.map((ingredient, index) =>
+        index === 0
+          ? {
+              ...ingredient,
+              quantity: { ...ingredient.quantity, value: -1 },
+            }
+          : ingredient,
+      ),
+      steps: DEFAULT_RECIPE.steps.map((step, index) =>
+        index === 0 ? { ...step, durationMinutes: Number.POSITIVE_INFINITY } : step,
+      ),
+    };
+
+    const codes = validateRecipe(recipe).map((issue) => issue.code);
+    expect(codes).toContain("ingredient-amount-range");
+    expect(codes).toContain("duration-range");
+    expect(buildRecipeGraph(recipe)).toBeNull();
+  });
+
+  it("normalizes valid imported steps into dependency-first order", () => {
+    const reversed: RecipeDocumentV1 = {
+      ...DEFAULT_RECIPE,
+      steps: [...DEFAULT_RECIPE.steps].reverse(),
+    };
+
+    expect(validateRecipe(reversed)).toEqual([]);
+    expect(normalizeRecipeStepOrder(reversed).steps.map((step) => step.id)).toEqual(
+      DEFAULT_RECIPE.steps.map((step) => step.id),
     );
   });
 });

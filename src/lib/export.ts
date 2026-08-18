@@ -146,3 +146,10 @@ export function downloadRecipeJson(recipe: RecipeDocumentV1): void {
     `${slugify(recipe.title)}.recipe.json`,
   );
 }
+
+export function downloadRecoveryJson(raw: string): void {
+  downloadBlob(
+    new Blob([raw], { type: "application/json;charset=utf-8" }),
+    "recipe-visualizer-recovery.json",
+  );
+}

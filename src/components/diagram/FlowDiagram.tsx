@@ -1,6 +1,8 @@
 import type { RefObject } from "react";
 import {
   buildRecipeGraph,
+  formatAlternateMeasurements,
+  formatIngredientQuantity,
   resolveIngredientStyle,
   scaleIngredient,
 } from "../../domain/recipe";
@@ -15,6 +17,7 @@ import {
   getUsedStyles,
   IngredientLabel,
   PALETTES,
+  splitText,
   SvgText,
   styleColor,
   type DiagramPalette,
@@ -243,22 +246,42 @@ export function FlowDiagram({
   if (!graph) return null;
 
   const palette = PALETTES[theme];
-  const width = 1740;
-  const headerHeight = 184;
-  const rowHeight = 78;
-  const footerHeight = 140;
-  const diagramTop = headerHeight + 34;
-  const diagramHeight = graph.ingredientOrder.length * rowHeight;
-  const height = diagramTop + diagramHeight + footerHeight;
   const ingredientLineX = 400;
   const firstStepX = 580;
-  const finalStepX = 1410;
+  const stepGap = 185;
+  const finalStepX = Math.max(
+    1410,
+    firstStepX + (graph.maxDepth - 1) * stepGap,
+  );
+  const width = finalStepX + 330;
+  const headerHeight = 184;
+  const footerHeight = 140;
+  const diagramTop = headerHeight + 34;
   const scaledIngredients = new Map(
     graph.ingredientOrder.map((ingredient) => [
       ingredient.id,
       scaleIngredient(ingredient, recipe.baseServings, servings),
-    ]),
+      ]),
   );
+  const maximumIngredientLines = Math.max(
+    1,
+    ...[...scaledIngredients.values()].map((ingredient) => {
+      const label = [
+        formatIngredientQuantity(ingredient),
+        ingredient.name,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return (
+        splitText(label, 27, 2).length +
+        (formatAlternateMeasurements(ingredient) ? 1 : 0) +
+        (ingredient.note?.trim() ? 1 : 0)
+      );
+    }),
+  );
+  const rowHeight = Math.max(78, maximumIngredientLines * 20 + 24);
+  const diagramHeight = graph.ingredientOrder.length * rowHeight;
+  const height = diagramTop + diagramHeight + footerHeight;
   const ingredientYPositions = new Map(
     graph.ingredientOrder.map((ingredient, index) => [
       ingredient.id,
@@ -485,19 +508,19 @@ export function FlowDiagram({
                   </SvgText>
                 ) : null}
                 <path
-                  d={`M ${position.x + 104} ${position.y} L 1590 ${position.y}`}
+                  d={`M ${position.x + 104} ${position.y} L ${width - 150} ${position.y}`}
                   stroke={palette.accent}
                   strokeWidth={5}
                   strokeLinecap="round"
                 />
                 <circle
-                  cx={1590}
+                  cx={width - 150}
                   cy={position.y}
                   r={9}
                   fill={palette.accent}
                 />
                 <SvgText
-                  x={1660}
+                  x={width - 78}
                   y={position.y}
                   maxCharacters={12}
                   fill={palette.ink}

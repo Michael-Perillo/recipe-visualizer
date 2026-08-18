@@ -5,6 +5,7 @@ import type {
   Theme,
 } from "../../domain/types";
 import {
+  formatAlternateMeasurements,
   formatIngredientQuantity,
   resolveIngredientStyle,
 } from "../../domain/recipe";
@@ -66,10 +67,23 @@ export function styleColor(
   return palette[style];
 }
 
-export function splitText(value: string, maxCharacters: number): string[] {
+export function splitText(
+  value: string,
+  maxCharacters: number,
+  maxLines = 3,
+): string[] {
   const normalized = value.trim();
   if (!normalized) return [""];
-  const words = normalized.split(/\s+/);
+  const words = normalized
+    .split(/\s+/)
+    .flatMap((word) => {
+      if (word.length <= maxCharacters) return [word];
+      const chunks: string[] = [];
+      for (let index = 0; index < word.length; index += maxCharacters) {
+        chunks.push(word.slice(index, index + maxCharacters));
+      }
+      return chunks;
+    });
   const lines: string[] = [];
   let line = "";
 
@@ -84,7 +98,12 @@ export function splitText(value: string, maxCharacters: number): string[] {
     }
   }
   if (line) lines.push(line);
-  return lines;
+  if (lines.length <= maxLines) return lines;
+  const visible = lines.slice(0, maxLines);
+  const lastIndex = visible.length - 1;
+  visible[lastIndex] =
+    `${visible[lastIndex].slice(0, Math.max(1, maxCharacters - 1)).trimEnd()}…`;
+  return visible;
 }
 
 type SvgTextProps = {
@@ -92,6 +111,7 @@ type SvgTextProps = {
   x: number;
   y: number;
   maxCharacters?: number;
+  maxLines?: number;
   lineHeight?: number;
   anchor?: "start" | "middle" | "end";
   fill: string;
@@ -106,6 +126,7 @@ export function SvgText({
   x,
   y,
   maxCharacters = 32,
+  maxLines = 3,
   lineHeight = 1.18,
   anchor = "start",
   fill,
@@ -114,7 +135,7 @@ export function SvgText({
   letterSpacing,
   italic,
 }: SvgTextProps) {
-  const lines = splitText(children, maxCharacters);
+  const lines = splitText(children, maxCharacters, maxLines);
   const lineHeightPx = fontSize * lineHeight;
   const startY = y - ((lines.length - 1) * lineHeightPx) / 2;
 
@@ -157,12 +178,18 @@ export function IngredientLabel({
 }) {
   const quantity = formatIngredientQuantity(ingredient);
   const label = [quantity, ingredient.name].filter(Boolean).join(" ");
+  const alternateMeasurements = formatAlternateMeasurements(ingredient);
+  const supplemental = [alternateMeasurements, ingredient.note].filter(
+    (value): value is string => Boolean(value?.trim()),
+  );
+  const labelY = supplemental.length > 0 ? y - 13 : y;
   return (
     <g>
       <SvgText
         x={x}
-        y={ingredient.note ? y - 10 : y}
+        y={labelY}
         maxCharacters={maxCharacters}
+        maxLines={2}
         fill={palette.ink}
         fontSize={19}
         fontWeight={720}
@@ -170,19 +197,21 @@ export function IngredientLabel({
       >
         {label}
       </SvgText>
-      {ingredient.note ? (
+      {supplemental.map((text, index) => (
         <SvgText
+          key={`${text}-${index}`}
           x={x}
-          y={y + 21}
+          y={y + 16 + index * 18}
           maxCharacters={maxCharacters + 8}
+          maxLines={1}
           fill={palette.muted}
-          fontSize={13}
+          fontSize={12}
           fontWeight={550}
           anchor={anchor}
         >
-          {ingredient.note}
+          {text}
         </SvgText>
-      ) : null}
+      ))}
     </g>
   );
 }
@@ -211,6 +240,7 @@ export function DiagramHeader({
         x={88}
         y={59}
         maxCharacters={34}
+        maxLines={2}
         fill={palette.ink}
         fontSize={38}
         fontWeight={820}
@@ -248,6 +278,7 @@ export function DiagramHeader({
               x={x + 48}
               y={91}
               maxCharacters={24}
+              maxLines={2}
               fill={palette.ink}
               fontSize={15}
               fontWeight={650}

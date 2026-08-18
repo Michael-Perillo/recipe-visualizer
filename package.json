@@ -6,12 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:pages": "VITE_BASE_PATH=/recipe-visualizer/ npm run build",
     "preview": "vite preview",
+    "preview:pages": "VITE_BASE_PATH=/recipe-visualizer/ vite preview",
     "typecheck": "tsc -b --pretty false",
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "npm run build:pages && playwright test",
+    "test:e2e:prepared": "playwright test",
+    "audit:prod": "npm audit --omit=dev"
   },
   "dependencies": {
     "@fontsource-variable/manrope": "^5.3.0",

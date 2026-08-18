@@ -1,6 +1,8 @@
 import type { RefObject } from "react";
 import {
   buildRecipeGraph,
+  formatAlternateMeasurements,
+  formatIngredientQuantity,
   resolveIngredientStyle,
   scaleIngredient,
 } from "../../domain/recipe";
@@ -11,6 +13,7 @@ import {
   getUsedStyles,
   IngredientLabel,
   PALETTES,
+  splitText,
   SvgText,
   styleColor,
 } from "./shared";
@@ -30,22 +33,43 @@ export function MatrixDiagram({
   if (!graph) return null;
 
   const palette = PALETTES[theme];
-  const width = 1500;
-  const headerHeight = 184;
-  const rowHeight = 82;
-  const footerHeight = 116;
-  const tableTop = headerHeight + 30;
-  const tableHeight = graph.ingredientOrder.length * rowHeight;
-  const height = tableTop + tableHeight + footerHeight;
   const ingredientWidth = 455;
   const rightMargin = 54;
-  const operationWidth = (width - ingredientWidth - rightMargin) / graph.maxDepth;
+  const minimumOperationWidth = 170;
+  const width = Math.max(
+    1500,
+    ingredientWidth + rightMargin + graph.maxDepth * minimumOperationWidth,
+  );
+  const headerHeight = 184;
+  const footerHeight = 116;
+  const tableTop = headerHeight + 30;
   const scaledIngredients = new Map(
     graph.ingredientOrder.map((ingredient) => [
       ingredient.id,
       scaleIngredient(ingredient, recipe.baseServings, servings),
-    ]),
+      ]),
   );
+  const maximumIngredientLines = Math.max(
+    1,
+    ...[...scaledIngredients.values()].map((ingredient) => {
+      const label = [
+        formatIngredientQuantity(ingredient),
+        ingredient.name,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return (
+        splitText(label, 31, 2).length +
+        (formatAlternateMeasurements(ingredient) ? 1 : 0) +
+        (ingredient.note?.trim() ? 1 : 0)
+      );
+    }),
+  );
+  const rowHeight = Math.max(82, maximumIngredientLines * 20 + 24);
+  const tableHeight = graph.ingredientOrder.length * rowHeight;
+  const height = tableTop + tableHeight + footerHeight;
+  const operationWidth =
+    (width - ingredientWidth - rightMargin) / graph.maxDepth;
   const usedStyles = getUsedStyles([...scaledIngredients.values()]);
 
   return (
@@ -152,6 +176,16 @@ export function MatrixDiagram({
         const consumerDepth = consumer
           ? graph.stepDepths.get(consumer)
           : undefined;
+        const compact = operationHeight < 150;
+        const hasMetadata =
+          step.temperature !== undefined ||
+          step.durationMinutes !== undefined;
+        const titleY = compact
+          ? centerY - (hasMetadata ? 22 : 13)
+          : centerY - (step.details ? 17 : 0);
+        const outputY = compact
+          ? y + operationHeight - 13
+          : Math.min(y + operationHeight - 28, centerY + 98);
 
         return (
           <g key={step.id}>
@@ -178,8 +212,9 @@ export function MatrixDiagram({
             />
             <SvgText
               x={x + operationWidth / 2}
-              y={centerY - (step.details ? 17 : 0)}
+              y={titleY}
               maxCharacters={14}
+              maxLines={compact ? 1 : 2}
               fill={isFinal ? palette.accentInk : palette.ink}
               fontSize={isFinal ? 25 : 22}
               fontWeight={820}
@@ -190,7 +225,7 @@ export function MatrixDiagram({
             {step.temperature ? (
               <SvgText
                 x={x + operationWidth / 2}
-                y={centerY + 20}
+                y={compact ? centerY + 2 : centerY + 20}
                 maxCharacters={18}
                 fill={isFinal ? palette.accentInk : palette.muted}
                 fontSize={15}
@@ -203,7 +238,7 @@ export function MatrixDiagram({
             {step.durationMinutes !== undefined ? (
               <SvgText
                 x={x + operationWidth / 2}
-                y={centerY + 46}
+                y={compact ? centerY + 19 : centerY + 46}
                 fill={isFinal ? palette.accentInk : palette.muted}
                 fontSize={14}
                 fontWeight={650}
@@ -214,20 +249,23 @@ export function MatrixDiagram({
             ) : null}
             {isFinal ? (
               <g>
-                <rect
-                  x={x + operationWidth / 2 - 68}
-                  y={centerY + 80}
-                  width={136}
-                  height={36}
-                  rx={18}
-                  fill={palette.accentInk}
-                  opacity={0.9}
-                />
+                {!compact ? (
+                  <rect
+                    x={x + operationWidth / 2 - 68}
+                    y={outputY - 18}
+                    width={136}
+                    height={36}
+                    rx={18}
+                    fill={palette.accentInk}
+                    opacity={0.9}
+                  />
+                ) : null}
                 <SvgText
                   x={x + operationWidth / 2}
-                  y={centerY + 98}
+                  y={outputY}
                   maxCharacters={15}
-                  fill={palette.accent}
+                  maxLines={1}
+                  fill={compact ? palette.accentInk : palette.accent}
                   fontSize={12}
                   fontWeight={760}
                   anchor="middle"

@@ -8,6 +8,7 @@ import type {
   ResolvedIngredientStyle,
   ValidationIssue,
 } from "./types";
+import { RECIPE_LIMITS } from "./limits";
 
 const FRACTION_CANDIDATES = [
   [1, 8],
@@ -81,6 +82,13 @@ export function scaleIngredient(
       value:
         ingredient.quantity.value * (targetServings / Math.max(baseServings, 1)),
     },
+    alternateMeasurements: ingredient.alternateMeasurements?.map(
+      (measurement) => ({
+        ...measurement,
+        value:
+          measurement.value * (targetServings / Math.max(baseServings, 1)),
+      }),
+    ),
   };
 }
 
@@ -93,6 +101,20 @@ export function formatIngredientQuantity(ingredient: Ingredient): string {
   const amount =
     quantity.value === undefined ? "" : formatAmount(quantity.value);
   return [amount, quantity.unit?.trim()].filter(Boolean).join(" ");
+}
+
+export function formatAlternateMeasurements(ingredient: Ingredient): string {
+  return (ingredient.alternateMeasurements ?? [])
+    .map((measurement) =>
+      [
+        Number(measurement.value.toFixed(2)).toString(),
+        measurement.unit.trim(),
+      ]
+        .filter(Boolean)
+        .join(" "),
+    )
+    .filter(Boolean)
+    .join(" / ");
 }
 
 export function resolveIngredientStyle(
@@ -150,14 +172,53 @@ export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
       message: "Base servings must be greater than zero.",
     });
   }
+  if (
+    !Number.isFinite(recipe.baseServings) ||
+    recipe.baseServings > RECIPE_LIMITS.servings
+  ) {
+    issues.push({
+      code: "servings-range",
+      message: `Base servings must be between 1 and ${RECIPE_LIMITS.servings}.`,
+    });
+  }
+  if (recipe.title.length > RECIPE_LIMITS.title) {
+    issues.push({
+      code: "title-length",
+      message: `Recipe titles must be ${RECIPE_LIMITS.title} characters or fewer.`,
+    });
+  }
+  if (recipe.outputLabel.length > RECIPE_LIMITS.outputLabel) {
+    issues.push({
+      code: "output-length",
+      message: `Final dish names must be ${RECIPE_LIMITS.outputLabel} characters or fewer.`,
+    });
+  }
+  if (recipe.prepNotes.length > RECIPE_LIMITS.prepNotes) {
+    issues.push({
+      code: "prep-note-limit",
+      message: `Use no more than ${RECIPE_LIMITS.prepNotes} prep notes.`,
+    });
+  }
   if (recipe.ingredients.length === 0) {
     issues.push({
       code: "ingredients",
       message: "Add at least one ingredient.",
     });
   }
+  if (recipe.ingredients.length > RECIPE_LIMITS.ingredients) {
+    issues.push({
+      code: "ingredient-limit",
+      message: `Use no more than ${RECIPE_LIMITS.ingredients} ingredients.`,
+    });
+  }
   if (recipe.steps.length === 0) {
     issues.push({ code: "steps", message: "Add at least one operation." });
+  }
+  if (recipe.steps.length > RECIPE_LIMITS.steps) {
+    issues.push({
+      code: "step-limit",
+      message: `Use no more than ${RECIPE_LIMITS.steps} operations.`,
+    });
   }
 
   for (const ingredient of recipe.ingredients) {
@@ -176,6 +237,20 @@ export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
         path: ingredient.id,
       });
     }
+    if (ingredient.name.length > RECIPE_LIMITS.ingredientName) {
+      issues.push({
+        code: "ingredient-name-length",
+        message: `Ingredient names must be ${RECIPE_LIMITS.ingredientName} characters or fewer.`,
+        path: ingredient.id,
+      });
+    }
+    if ((ingredient.note?.length ?? 0) > RECIPE_LIMITS.longText) {
+      issues.push({
+        code: "ingredient-note-length",
+        message: `Ingredient notes must be ${RECIPE_LIMITS.longText} characters or fewer.`,
+        path: ingredient.id,
+      });
+    }
     if (
       ingredient.quantity.scalable &&
       ingredient.quantity.value === undefined
@@ -185,6 +260,48 @@ export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
         message: `${ingredient.name || "An ingredient"} needs a numeric amount.`,
         path: ingredient.id,
       });
+    }
+    if (
+      ingredient.quantity.value !== undefined &&
+      (!Number.isFinite(ingredient.quantity.value) ||
+        ingredient.quantity.value < 0 ||
+        ingredient.quantity.value > RECIPE_LIMITS.amount)
+    ) {
+      issues.push({
+        code: "ingredient-amount-range",
+        message: `${ingredient.name || "An ingredient"} needs an amount between 0 and ${RECIPE_LIMITS.amount}.`,
+        path: ingredient.id,
+      });
+    }
+    if (
+      (ingredient.alternateMeasurements?.length ?? 0) >
+      RECIPE_LIMITS.alternateMeasurements
+    ) {
+      issues.push({
+        code: "alternate-measurement-limit",
+        message: `${ingredient.name || "An ingredient"} can have at most ${RECIPE_LIMITS.alternateMeasurements} alternate measurements.`,
+        path: ingredient.id,
+      });
+    }
+    for (const measurement of ingredient.alternateMeasurements ?? []) {
+      if (
+        !Number.isFinite(measurement.value) ||
+        measurement.value < 0 ||
+        measurement.value > RECIPE_LIMITS.amount
+      ) {
+        issues.push({
+          code: "alternate-measurement-range",
+          message: `${ingredient.name || "An ingredient"} has an invalid alternate measurement.`,
+          path: ingredient.id,
+        });
+      }
+      if (!measurement.unit.trim()) {
+        issues.push({
+          code: "alternate-measurement-unit",
+          message: `${ingredient.name || "An ingredient"} needs a unit for each alternate measurement.`,
+          path: ingredient.id,
+        });
+      }
     }
   }
 
@@ -204,6 +321,20 @@ export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
         path: step.id,
       });
     }
+    if (step.label.length > RECIPE_LIMITS.stepLabel) {
+      issues.push({
+        code: "step-label-length",
+        message: `Operation labels must be ${RECIPE_LIMITS.stepLabel} characters or fewer.`,
+        path: step.id,
+      });
+    }
+    if ((step.details?.length ?? 0) > RECIPE_LIMITS.longText) {
+      issues.push({
+        code: "step-details-length",
+        message: `Operation details must be ${RECIPE_LIMITS.longText} characters or fewer.`,
+        path: step.id,
+      });
+    }
     if (step.inputs.length === 0) {
       issues.push({
         code: "step-input",
@@ -215,6 +346,18 @@ export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
       issues.push({
         code: "duplicate-input",
         message: `${step.label || "An operation"} uses the same input twice.`,
+        path: step.id,
+      });
+    }
+    if (
+      step.durationMinutes !== undefined &&
+      (!Number.isFinite(step.durationMinutes) ||
+        step.durationMinutes < 0 ||
+        step.durationMinutes > RECIPE_LIMITS.durationMinutes)
+    ) {
+      issues.push({
+        code: "duration-range",
+        message: `${step.label || "An operation"} needs a duration between 0 and ${RECIPE_LIMITS.durationMinutes} minutes.`,
         path: step.id,
       });
     }
@@ -411,6 +554,17 @@ export function buildRecipeGraph(recipe: RecipeDocumentV1): RecipeGraph | null {
   };
 }
 
+export function normalizeRecipeStepOrder(
+  recipe: RecipeDocumentV1,
+): RecipeDocumentV1 {
+  const graph = buildRecipeGraph(recipe);
+  if (!graph) return recipe;
+  return {
+    ...recipe,
+    steps: graph.stepOrder,
+  };
+}
+
 export function cloneRecipe(
   recipe: RecipeDocumentV1,
   title = `${recipe.title} copy`,
@@ -431,6 +585,9 @@ export function cloneRecipe(
       ...ingredient,
       id: idMap.get(ingredient.id)!,
       quantity: { ...ingredient.quantity },
+      alternateMeasurements: ingredient.alternateMeasurements?.map(
+        (measurement) => ({ ...measurement }),
+      ),
     })),
     steps: recipe.steps.map((step) => ({
       ...step,

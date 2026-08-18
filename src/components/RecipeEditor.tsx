@@ -8,6 +8,12 @@ import {
   ListTree,
   Trash2,
 } from "lucide-react";
+import {
+  RECIPE_LIMITS,
+  normalizeAmount,
+  normalizeDuration,
+  normalizeServings,
+} from "../domain/limits";
 import { makeId, validateRecipe } from "../domain/recipe";
 import type {
   Ingredient,
@@ -115,6 +121,7 @@ function IngredientEditor({
           aria-label={`Ingredient ${index + 1} name`}
           className={`${fieldClass} min-w-0 flex-1`}
           value={ingredient.name}
+          maxLength={RECIPE_LIMITS.ingredientName}
           placeholder="Ingredient name"
           onChange={(event) =>
             setIngredient((value) => ({ ...value, name: event.target.value }))
@@ -139,21 +146,23 @@ function IngredientEditor({
               className={fieldClass}
               type="number"
               min="0"
+              max={RECIPE_LIMITS.amount}
               step="any"
               value={ingredient.quantity.value ?? ""}
               placeholder="1"
-              onChange={(event) =>
+              onChange={(event) => {
+                const amount =
+                  event.target.value === ""
+                    ? undefined
+                    : normalizeAmount(event.target.value);
                 setIngredient((value) => ({
                   ...value,
                   quantity: {
                     ...value.quantity,
-                    value:
-                      event.target.value === ""
-                        ? undefined
-                        : Number(event.target.value),
+                    value: amount,
                   },
-                }))
-              }
+                }));
+              }}
             />
           </label>
         ) : (
@@ -163,6 +172,7 @@ function IngredientEditor({
               aria-label={`${ingredient.name || "Ingredient"} quantity text`}
               className={fieldClass}
               value={ingredient.quantity.text ?? ""}
+              maxLength={RECIPE_LIMITS.longText}
               placeholder="to taste"
               onChange={(event) =>
                 setIngredient((value) => ({
@@ -182,26 +192,12 @@ function IngredientEditor({
             aria-label={`${ingredient.name || "Ingredient"} unit`}
             className={fieldClass}
             value={ingredient.quantity.unit ?? ""}
+            maxLength={RECIPE_LIMITS.shortText}
             placeholder="cup"
             onChange={(event) =>
               setIngredient((value) => ({
                 ...value,
                 quantity: { ...value.quantity, unit: event.target.value },
-              }))
-            }
-          />
-        </label>
-        <label>
-          <span className={labelClass}>Alt. measure / note</span>
-          <input
-            aria-label={`${ingredient.name || "Ingredient"} note`}
-            className={fieldClass}
-            value={ingredient.note ?? ""}
-            placeholder="120 g"
-            onChange={(event) =>
-              setIngredient((value) => ({
-                ...value,
-                note: event.target.value || undefined,
               }))
             }
           />
@@ -227,6 +223,117 @@ function IngredientEditor({
           </select>
         </label>
       </div>
+
+      <fieldset className="mt-3">
+        <legend className={labelClass}>
+          Alternate measurements · scale with servings
+        </legend>
+        <div className="space-y-2">
+          {(ingredient.alternateMeasurements ?? []).map(
+            (measurement, measurementIndex) => (
+              <div
+                key={measurementIndex}
+                className="grid grid-cols-[1fr_1fr_40px] gap-2"
+              >
+                <input
+                  aria-label={`${ingredient.name || "Ingredient"} alternate measurement ${measurementIndex + 1} amount`}
+                  className={fieldClass}
+                  type="number"
+                  min="0"
+                  max={RECIPE_LIMITS.amount}
+                  step="any"
+                  value={measurement.value}
+                  placeholder="120"
+                  onChange={(event) => {
+                    const amount = normalizeAmount(event.target.value);
+                    if (amount === undefined) return;
+                    setIngredient((value) => ({
+                      ...value,
+                      alternateMeasurements: (
+                        value.alternateMeasurements ?? []
+                      ).map((candidate, index) =>
+                        index === measurementIndex
+                          ? { ...candidate, value: amount }
+                          : candidate,
+                      ),
+                    }));
+                  }}
+                />
+                <input
+                  aria-label={`${ingredient.name || "Ingredient"} alternate measurement ${measurementIndex + 1} unit`}
+                  className={fieldClass}
+                  value={measurement.unit}
+                  maxLength={RECIPE_LIMITS.shortText}
+                  placeholder="g"
+                  onChange={(event) =>
+                    setIngredient((value) => ({
+                      ...value,
+                      alternateMeasurements: (
+                        value.alternateMeasurements ?? []
+                      ).map((candidate, index) =>
+                        index === measurementIndex
+                          ? { ...candidate, unit: event.target.value }
+                          : candidate,
+                      ),
+                    }))
+                  }
+                />
+                <button
+                  type="button"
+                  className="grid size-10 place-items-center rounded-xl text-stone-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/30"
+                  aria-label={`Remove alternate measurement ${measurementIndex + 1} from ${ingredient.name || "ingredient"}`}
+                  onClick={() =>
+                    setIngredient((value) => ({
+                      ...value,
+                      alternateMeasurements: (
+                        value.alternateMeasurements ?? []
+                      ).filter((_, index) => index !== measurementIndex),
+                    }))
+                  }
+                >
+                  <Trash2 className="size-4" />
+                </button>
+              </div>
+            ),
+          )}
+          {(ingredient.alternateMeasurements?.length ?? 0) <
+          RECIPE_LIMITS.alternateMeasurements ? (
+            <button
+              type="button"
+              className="flex min-h-9 items-center gap-2 rounded-xl border border-dashed border-black/15 px-3 text-xs font-extrabold text-stone-600 hover:border-lime-500 dark:border-white/15 dark:text-stone-400"
+              onClick={() =>
+                setIngredient((value) => ({
+                  ...value,
+                  alternateMeasurements: [
+                    ...(value.alternateMeasurements ?? []),
+                    { value: 1, unit: "" },
+                  ],
+                }))
+              }
+            >
+              <CirclePlus className="size-4" />
+              Add alternate measurement
+            </button>
+          ) : null}
+        </div>
+      </fieldset>
+
+      <label className="mt-3 block">
+        <span className={labelClass}>Note · does not scale</span>
+        <input
+          aria-label={`${ingredient.name || "Ingredient"} note`}
+          className={fieldClass}
+          value={ingredient.note ?? ""}
+          maxLength={RECIPE_LIMITS.longText}
+          placeholder="Optional preparation note"
+          onChange={(event) =>
+            setIngredient((value) => ({
+              ...value,
+              note: event.target.value || undefined,
+            }))
+          }
+        />
+      </label>
       <label className="mt-3 flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border border-black/[0.06] px-3 text-xs font-bold text-stone-600 dark:border-white/[0.06] dark:text-stone-300">
         <input
           type="checkbox"
@@ -329,6 +436,7 @@ function StepEditor({
           aria-label={`Operation ${index + 1} action`}
           className={`${fieldClass} min-w-0 flex-1`}
           value={step.label}
+          maxLength={RECIPE_LIMITS.stepLabel}
           placeholder="Mix, fold, bake…"
           onChange={(event) =>
             setStep((value) => ({ ...value, label: event.target.value }))
@@ -350,6 +458,7 @@ function StepEditor({
           aria-label={`${step.label || "Operation"} details`}
           className={fieldClass}
           value={step.details ?? ""}
+          maxLength={RECIPE_LIMITS.longText}
           placeholder="Whisk until glossy"
           onChange={(event) =>
             setStep((value) => ({
@@ -367,6 +476,7 @@ function StepEditor({
             aria-label={`${step.label || "Operation"} temperature`}
             className={fieldClass}
             value={step.temperature ?? ""}
+            maxLength={RECIPE_LIMITS.shortText}
             placeholder="350°F"
             onChange={(event) =>
               setStep((value) => ({
@@ -383,18 +493,20 @@ function StepEditor({
             className={fieldClass}
             type="number"
             min="0"
+            max={RECIPE_LIMITS.durationMinutes}
             step="1"
             value={step.durationMinutes ?? ""}
             placeholder="30"
-            onChange={(event) =>
+            onChange={(event) => {
+              const duration =
+                event.target.value === ""
+                  ? undefined
+                  : normalizeDuration(event.target.value);
               setStep((value) => ({
                 ...value,
-                durationMinutes:
-                  event.target.value === ""
-                    ? undefined
-                    : Number(event.target.value),
-              }))
-            }
+                durationMinutes: duration,
+              }));
+            }}
           />
         </label>
       </div>
@@ -440,6 +552,7 @@ export function RecipeEditor() {
     dispatch({ type: "replace-active", recipe: updatedRecipe });
 
   const addIngredient = () => {
+    if (recipe.ingredients.length >= RECIPE_LIMITS.ingredients) return;
     const ingredient: Ingredient = {
       id: makeId("ingredient"),
       name: "",
@@ -450,6 +563,7 @@ export function RecipeEditor() {
   };
 
   const addStep = () => {
+    if (recipe.steps.length >= RECIPE_LIMITS.steps) return;
     const step: RecipeStep = {
       id: makeId("step"),
       label: "",
@@ -492,6 +606,7 @@ export function RecipeEditor() {
             <input
               className={fieldClass}
               value={recipe.title}
+              maxLength={RECIPE_LIMITS.title}
               aria-label="Recipe title"
               onChange={(event) =>
                 onChange({ ...recipe, title: event.target.value })
@@ -504,6 +619,7 @@ export function RecipeEditor() {
               <input
                 className={fieldClass}
                 value={recipe.outputLabel}
+                maxLength={RECIPE_LIMITS.outputLabel}
                 placeholder="tomato soup"
                 aria-label="Final dish"
                 onChange={(event) =>
@@ -517,15 +633,18 @@ export function RecipeEditor() {
                 className={fieldClass}
                 type="number"
                 min="1"
+                max={RECIPE_LIMITS.servings}
                 step="1"
                 value={recipe.baseServings}
                 aria-label="Base servings"
-                onChange={(event) =>
+                onChange={(event) => {
+                  const servings = normalizeServings(event.target.value);
+                  if (servings === undefined) return;
                   onChange({
                     ...recipe,
-                    baseServings: Math.max(1, Number(event.target.value) || 1),
-                  })
-                }
+                    baseServings: servings,
+                  });
+                }}
               />
             </label>
           </div>
@@ -540,11 +659,12 @@ export function RecipeEditor() {
         />
         <div className="mt-4 space-y-2">
           {recipe.prepNotes.map((note, index) => (
-            <div key={`${index}-${note}`} className="flex gap-2">
+            <div key={index} className="flex gap-2">
               <input
                 className={fieldClass}
                 aria-label={`Prep note ${index + 1}`}
                 value={note}
+                maxLength={RECIPE_LIMITS.longText}
                 placeholder="Preheat the oven…"
                 onChange={(event) =>
                   onChange({
@@ -575,6 +695,12 @@ export function RecipeEditor() {
           <button
             type="button"
             className="mt-1 flex min-h-10 items-center gap-2 rounded-xl border border-dashed border-black/15 px-3 text-xs font-extrabold text-stone-600 hover:border-lime-500 hover:text-stone-950 dark:border-white/15 dark:text-stone-400 dark:hover:text-white"
+            disabled={recipe.prepNotes.length >= RECIPE_LIMITS.prepNotes}
+            title={
+              recipe.prepNotes.length >= RECIPE_LIMITS.prepNotes
+                ? `Maximum ${RECIPE_LIMITS.prepNotes} prep notes`
+                : undefined
+            }
             onClick={() =>
               onChange({ ...recipe, prepNotes: [...recipe.prepNotes, ""] })
             }
@@ -609,6 +735,12 @@ export function RecipeEditor() {
           <button
             type="button"
             className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-black/15 text-sm font-extrabold text-stone-600 transition hover:border-lime-500 hover:bg-lime-50 hover:text-stone-950 dark:border-white/15 dark:text-stone-400 dark:hover:bg-lime-400/10 dark:hover:text-white"
+            disabled={recipe.ingredients.length >= RECIPE_LIMITS.ingredients}
+            title={
+              recipe.ingredients.length >= RECIPE_LIMITS.ingredients
+                ? `Maximum ${RECIPE_LIMITS.ingredients} ingredients`
+                : undefined
+            }
             onClick={addIngredient}
           >
             <CirclePlus className="size-4" />
@@ -641,6 +773,12 @@ export function RecipeEditor() {
           <button
             type="button"
             className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-black/15 text-sm font-extrabold text-stone-600 transition hover:border-lime-500 hover:bg-lime-50 hover:text-stone-950 dark:border-white/15 dark:text-stone-400 dark:hover:bg-lime-400/10 dark:hover:text-white"
+            disabled={recipe.steps.length >= RECIPE_LIMITS.steps}
+            title={
+              recipe.steps.length >= RECIPE_LIMITS.steps
+                ? `Maximum ${RECIPE_LIMITS.steps} operations`
+                : undefined
+            }
             onClick={addStep}
           >
             <CirclePlus className="size-4" />
@@ -668,6 +806,11 @@ export function RecipeEditor() {
             </select>
           </label>
         ) : null}
+        <p className="mt-4 rounded-2xl border border-black/[0.06] bg-white/70 p-3 text-xs font-semibold leading-relaxed text-stone-600 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-stone-400">
+          Recipe Visualizer draws a tree: each ingredient or intermediate
+          preparation feeds one later operation. If a recipe divides or reserves
+          something, create separate ingredient quantities for each branch.
+        </p>
       </section>
 
       {issues.length > 0 ? (

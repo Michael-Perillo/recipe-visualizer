@@ -2,15 +2,21 @@ import {
   createContext,
   type Dispatch,
   type ReactNode,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
   useReducer,
+  useRef,
   useState,
 } from "react";
 import { DEFAULT_RECIPE } from "../data/defaultRecipe";
+import { RECIPE_LIMITS, normalizeServings } from "../domain/limits";
 import { cloneRecipe, createBlankRecipe, makeId } from "../domain/recipe";
-import { persistedLibrarySchema } from "../domain/schema";
+import {
+  persistedLibrarySchema,
+  recipeDocumentSchema,
+} from "../domain/schema";
 import type {
   DiagramView,
   MobilePanel,
@@ -20,6 +26,7 @@ import type {
 } from "../domain/types";
 
 const STORAGE_KEY = "recipe-visualizer:library:v1";
+const RECOVERY_KEY = `${STORAGE_KEY}:recovery`;
 
 type AppState = {
   activeRecipeId: string;
@@ -42,15 +49,29 @@ type AppAction =
   | { type: "set-theme"; theme: Theme }
   | { type: "set-servings"; recipeId: string; servings: number }
   | { type: "set-mobile-panel"; panel: MobilePanel }
-  | { type: "toggle-editor" };
+  | { type: "toggle-editor" }
+  | { type: "replace-library"; state: AppState }
+  | { type: "reset-library"; state: AppState };
 
 type SaveStatus = "saving" | "saved" | "unavailable";
+
+export type RecoveryNotice = {
+  raw?: string;
+  backupAvailable: boolean;
+  salvagedRecipes: number;
+};
 
 type AppContextValue = AppState & {
   activeRecipe: RecipeDocumentV1;
   servings: number;
   saveStatus: SaveStatus;
+  recoveryNotice: RecoveryNotice | null;
+  hasExternalConflict: boolean;
   dispatch: Dispatch<AppAction>;
+  dismissRecovery: () => void;
+  resetLocalData: () => void;
+  useExternalChanges: () => void;
+  keepLocalChanges: () => void;
 };
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -65,8 +86,8 @@ function getSystemTheme(): Theme {
   return "light";
 }
 
-function getInitialState(): AppState {
-  const fallback: AppState = {
+function createDefaultState(): AppState {
+  return {
     activeRecipeId: DEFAULT_RECIPE.id,
     recipes: [DEFAULT_RECIPE],
     view: "flow",
@@ -75,29 +96,168 @@ function getInitialState(): AppState {
     mobilePanel: "preview",
     editorCollapsed: false,
   };
+}
 
-  if (typeof window === "undefined") return fallback;
+function libraryToState(library: PersistedLibraryV1): AppState {
+  const activeRecipeId = library.recipes.some(
+    (recipe) => recipe.id === library.activeRecipeId,
+  )
+    ? library.activeRecipeId
+    : library.recipes[0].id;
+
+  const servingsByRecipe = Object.fromEntries(
+    library.recipes.map((recipe) => [
+      recipe.id,
+      normalizeServings(library.servingsByRecipe[recipe.id]) ??
+        recipe.baseServings,
+    ]),
+  );
+
+  return {
+    activeRecipeId,
+    recipes: library.recipes,
+    view: library.view,
+    theme: library.theme,
+    servingsByRecipe,
+    mobilePanel: "preview",
+    editorCollapsed: false,
+  };
+}
+
+type InitialBundle = {
+  state: AppState;
+  recovery: RecoveryNotice | null;
+  persistenceEnabled: boolean;
+  updatedAt: number;
+  shouldPersist: boolean;
+};
+
+function salvageLibrary(value: unknown): AppState | null {
+  if (!value || typeof value !== "object") return null;
+  const candidate = value as Record<string, unknown>;
+  if (!Array.isArray(candidate.recipes)) return null;
+  const recipes = candidate.recipes
+    .slice(0, RECIPE_LIMITS.recipes)
+    .flatMap((recipe) => {
+      const parsed = recipeDocumentSchema.safeParse(recipe);
+      return parsed.success ? [parsed.data] : [];
+    });
+  if (recipes.length === 0) return null;
+
+  const view = candidate.view === "matrix" ? "matrix" : "flow";
+  const theme =
+    candidate.theme === "dark" || candidate.theme === "light"
+      ? candidate.theme
+      : getSystemTheme();
+  const activeRecipeId =
+    typeof candidate.activeRecipeId === "string" &&
+    recipes.some((recipe) => recipe.id === candidate.activeRecipeId)
+      ? candidate.activeRecipeId
+      : recipes[0].id;
+  const rawServings =
+    candidate.servingsByRecipe &&
+    typeof candidate.servingsByRecipe === "object"
+      ? (candidate.servingsByRecipe as Record<string, unknown>)
+      : {};
+
+  return {
+    activeRecipeId,
+    recipes,
+    view,
+    theme,
+    servingsByRecipe: Object.fromEntries(
+      recipes.map((recipe) => {
+        const savedServings = rawServings[recipe.id];
+        return [
+          recipe.id,
+          normalizeServings(
+            typeof savedServings === "number"
+              ? savedServings
+              : recipe.baseServings,
+          ) ?? recipe.baseServings,
+        ];
+      }),
+    ),
+    mobilePanel: "preview",
+    editorCollapsed: false,
+  };
+}
+
+function getInitialBundle(): InitialBundle {
+  const fallback = createDefaultState();
+  if (typeof window === "undefined") {
+    return {
+      state: fallback,
+      recovery: null,
+      persistenceEnabled: false,
+      updatedAt: 0,
+      shouldPersist: false,
+    };
+  }
 
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (!raw) return fallback;
-    const parsed = persistedLibrarySchema.safeParse(JSON.parse(raw));
-    if (!parsed.success) return fallback;
-    const library = parsed.data;
-    const activeRecipeId = library.recipes.some(
-      (recipe) => recipe.id === library.activeRecipeId,
-    )
-      ? library.activeRecipeId
-      : library.recipes[0].id;
+    if (!raw) {
+      return {
+        state: fallback,
+        recovery: null,
+        persistenceEnabled: true,
+        updatedAt: 0,
+        shouldPersist: true,
+      };
+    }
+    const json = JSON.parse(raw) as unknown;
+    const parsed = persistedLibrarySchema.safeParse(json);
+    if (parsed.success) {
+      return {
+        state: libraryToState(parsed.data),
+        recovery: null,
+        persistenceEnabled: true,
+        updatedAt: parsed.data.updatedAt ?? 0,
+        shouldPersist: false,
+      };
+    }
 
+    let backupAvailable = false;
+    try {
+      window.localStorage.setItem(RECOVERY_KEY, raw);
+      backupAvailable = true;
+    } catch {
+      backupAvailable = false;
+    }
+    const salvaged = salvageLibrary(json);
     return {
-      ...library,
-      activeRecipeId,
-      mobilePanel: "preview",
-      editorCollapsed: false,
+      state: salvaged ?? fallback,
+      recovery: {
+        raw,
+        backupAvailable,
+        salvagedRecipes: salvaged?.recipes.length ?? 0,
+      },
+      persistenceEnabled: backupAvailable,
+      updatedAt: 0,
+      shouldPersist: backupAvailable,
     };
   } catch {
-    return fallback;
+    let raw: string | undefined;
+    let backupAvailable = false;
+    try {
+      raw = window.localStorage.getItem(STORAGE_KEY) ?? undefined;
+      if (raw !== undefined) {
+        window.localStorage.setItem(RECOVERY_KEY, raw);
+        backupAvailable = true;
+      }
+    } catch {
+      backupAvailable = false;
+    }
+    return {
+      state: fallback,
+      recovery: raw
+        ? { raw, backupAvailable, salvagedRecipes: 0 }
+        : null,
+      persistenceEnabled: raw ? backupAvailable : false,
+      updatedAt: 0,
+      shouldPersist: raw ? backupAvailable : false,
+    };
   }
 }
 
@@ -120,6 +280,7 @@ function reducer(state: AppState, action: AppAction): AppState {
         ),
       };
     case "new-recipe": {
+      if (state.recipes.length >= RECIPE_LIMITS.recipes) return state;
       const recipe = createBlankRecipe();
       return {
         ...state,
@@ -134,6 +295,7 @@ function reducer(state: AppState, action: AppAction): AppState {
       };
     }
     case "duplicate-active": {
+      if (state.recipes.length >= RECIPE_LIMITS.recipes) return state;
       const active = state.recipes.find(
         (recipe) => recipe.id === state.activeRecipeId,
       );
@@ -171,6 +333,7 @@ function reducer(state: AppState, action: AppAction): AppState {
       };
     }
     case "import-recipe": {
+      if (state.recipes.length >= RECIPE_LIMITS.recipes) return state;
       const recipe = state.recipes.some(
         (candidate) => candidate.id === action.recipe.id,
       )
@@ -196,25 +359,104 @@ function reducer(state: AppState, action: AppAction): AppState {
     case "set-theme":
       return { ...state, theme: action.theme };
     case "set-servings":
+      {
+        const servings = normalizeServings(action.servings);
+        if (servings === undefined) return state;
       return {
         ...state,
         servingsByRecipe: {
           ...state.servingsByRecipe,
-          [action.recipeId]: Math.max(1, action.servings),
+            [action.recipeId]: servings,
         },
       };
+      }
     case "set-mobile-panel":
       return { ...state, mobilePanel: action.panel };
     case "toggle-editor":
       return { ...state, editorCollapsed: !state.editorCollapsed };
+    case "replace-library":
+    case "reset-library":
+      return action.state;
     default:
       return state;
   }
 }
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reducer, undefined, getInitialState);
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [initial] = useState(getInitialBundle);
+  const [state, baseDispatch] = useReducer(reducer, initial.state);
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>(
+    initial.persistenceEnabled
+      ? initial.shouldPersist
+        ? "saving"
+        : "saved"
+      : "unavailable",
+  );
+  const [recoveryNotice, setRecoveryNotice] =
+    useState<RecoveryNotice | null>(initial.recovery);
+  const [persistenceEnabled, setPersistenceEnabled] = useState(
+    initial.persistenceEnabled,
+  );
+  const [externalConflict, setExternalConflict] = useState<{
+    state: AppState;
+    updatedAt: number;
+  } | null>(null);
+  const stateRef = useRef(state);
+  const persistenceEnabledRef = useRef(persistenceEnabled);
+  const dirtyRef = useRef(initial.shouldPersist);
+  const saveTimerRef = useRef<number | null>(null);
+  const skipNextSaveRef = useRef(false);
+  const updatedAtRef = useRef(initial.updatedAt);
+  const originIdRef = useRef(makeId("tab"));
+
+  const updateSaveStatus = useCallback((status: SaveStatus) => {
+    setSaveStatus(status);
+  }, []);
+
+  const flushState = useCallback(() => {
+    if (!dirtyRef.current || !persistenceEnabledRef.current) return false;
+    const updatedAt = Math.max(Date.now(), updatedAtRef.current + 1);
+    const current = stateRef.current;
+    const persisted: PersistedLibraryV1 = {
+      schemaVersion: 1,
+      activeRecipeId: current.activeRecipeId,
+      recipes: current.recipes,
+      view: current.view,
+      theme: current.theme,
+      servingsByRecipe: current.servingsByRecipe,
+      updatedAt,
+      originId: originIdRef.current,
+    };
+    try {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
+      updatedAtRef.current = updatedAt;
+      dirtyRef.current = false;
+      updateSaveStatus("saved");
+      return true;
+    } catch {
+      updateSaveStatus("unavailable");
+      return false;
+    }
+  }, [updateSaveStatus]);
+
+  const dispatch = useCallback<Dispatch<AppAction>>(
+    (action) => {
+      dirtyRef.current = true;
+      if (persistenceEnabledRef.current) {
+        updateSaveStatus("saving");
+      }
+      baseDispatch(action);
+    },
+    [updateSaveStatus],
+  );
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
+    persistenceEnabledRef.current = persistenceEnabled;
+  }, [persistenceEnabled]);
 
   const activeRecipe =
     state.recipes.find((recipe) => recipe.id === state.activeRecipeId) ??
@@ -231,28 +473,28 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [state.theme]);
 
   useEffect(() => {
-    const statusTimer = window.setTimeout(() => setSaveStatus("saving"), 0);
-    const timer = window.setTimeout(() => {
-      const persisted: PersistedLibraryV1 = {
-        schemaVersion: 1,
-        activeRecipeId: state.activeRecipeId,
-        recipes: state.recipes,
-        view: state.view,
-        theme: state.theme,
-        servingsByRecipe: state.servingsByRecipe,
-      };
-      try {
-        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(persisted));
-        setSaveStatus("saved");
-      } catch {
-        setSaveStatus("unavailable");
-      }
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+    if (!dirtyRef.current) return;
+    if (!persistenceEnabled) return;
+    if (saveTimerRef.current !== null) {
+      window.clearTimeout(saveTimerRef.current);
+    }
+    saveTimerRef.current = window.setTimeout(() => {
+      saveTimerRef.current = null;
+      flushState();
     }, 320);
     return () => {
-      window.clearTimeout(statusTimer);
-      window.clearTimeout(timer);
+      if (saveTimerRef.current !== null) {
+        window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+      }
     };
   }, [
+    flushState,
+    persistenceEnabled,
     state.activeRecipeId,
     state.recipes,
     state.servingsByRecipe,
@@ -260,15 +502,129 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     state.view,
   ]);
 
+  useEffect(() => {
+    const flushPendingState = () => {
+      if (document.visibilityState === "hidden") flushState();
+    };
+    const handlePageHide = () => flushState();
+    document.addEventListener("visibilitychange", flushPendingState);
+    window.addEventListener("pagehide", handlePageHide);
+    return () => {
+      document.removeEventListener("visibilitychange", flushPendingState);
+      window.removeEventListener("pagehide", handlePageHide);
+    };
+  }, [flushState]);
+
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY || !event.newValue) return;
+      try {
+        const parsed = persistedLibrarySchema.safeParse(
+          JSON.parse(event.newValue),
+        );
+        if (!parsed.success) return;
+        const incoming = parsed.data;
+        if (incoming.originId === originIdRef.current) return;
+        const incomingUpdatedAt = incoming.updatedAt ?? Date.now();
+        if (incomingUpdatedAt <= updatedAtRef.current) return;
+        const incomingState = libraryToState(incoming);
+        if (dirtyRef.current) {
+          setExternalConflict({
+            state: incomingState,
+            updatedAt: incomingUpdatedAt,
+          });
+          return;
+        }
+        updatedAtRef.current = incomingUpdatedAt;
+        dirtyRef.current = false;
+        skipNextSaveRef.current = true;
+        stateRef.current = incomingState;
+        baseDispatch({ type: "replace-library", state: incomingState });
+        updateSaveStatus("saved");
+      } catch {
+        // Ignore invalid writes from other tabs; the current library stays safe.
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, [updateSaveStatus]);
+
+  const dismissRecovery = useCallback(() => setRecoveryNotice(null), []);
+
+  const resetLocalData = useCallback(() => {
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+      window.localStorage.removeItem(RECOVERY_KEY);
+      persistenceEnabledRef.current = true;
+      setPersistenceEnabled(true);
+      setRecoveryNotice(null);
+      setExternalConflict(null);
+      const next = createDefaultState();
+      stateRef.current = next;
+      dirtyRef.current = true;
+      baseDispatch({ type: "reset-library", state: next });
+      updateSaveStatus("saving");
+    } catch {
+      persistenceEnabledRef.current = false;
+      setPersistenceEnabled(false);
+      updateSaveStatus("unavailable");
+    }
+  }, [updateSaveStatus]);
+
+  const useExternalChanges = useCallback(() => {
+    if (!externalConflict) return;
+    updatedAtRef.current = externalConflict.updatedAt;
+    dirtyRef.current = false;
+    skipNextSaveRef.current = true;
+    stateRef.current = externalConflict.state;
+    baseDispatch({
+      type: "replace-library",
+      state: externalConflict.state,
+    });
+    setExternalConflict(null);
+    updateSaveStatus("saved");
+  }, [externalConflict, updateSaveStatus]);
+
+  const keepLocalChanges = useCallback(() => {
+    if (externalConflict) {
+      updatedAtRef.current = Math.max(
+        updatedAtRef.current,
+        externalConflict.updatedAt,
+      );
+    }
+    setExternalConflict(null);
+    dirtyRef.current = true;
+    updateSaveStatus("saving");
+    flushState();
+  }, [externalConflict, flushState, updateSaveStatus]);
+
   const value = useMemo(
     () => ({
       ...state,
       activeRecipe,
       servings,
       saveStatus,
+      recoveryNotice,
+      hasExternalConflict: externalConflict !== null,
       dispatch,
+      dismissRecovery,
+      resetLocalData,
+      useExternalChanges,
+      keepLocalChanges,
     }),
-    [activeRecipe, saveStatus, servings, state],
+    [
+      activeRecipe,
+      dismissRecovery,
+      dispatch,
+      externalConflict,
+      keepLocalChanges,
+      recoveryNotice,
+      resetLocalData,
+      saveStatus,
+      servings,
+      state,
+      useExternalChanges,
+    ],
   );
 
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
@@ -282,4 +638,4 @@ export function useAppState(): AppContextValue {
   return context;
 }
 
-export { STORAGE_KEY };
+export { RECOVERY_KEY, STORAGE_KEY };
