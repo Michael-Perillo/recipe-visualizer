@@ -17,6 +17,51 @@ afterEach(() => {
 });
 
 describe("Recipe Visualizer workspace", () => {
+  it("restores the detailed brownie only after confirmation without changing other saved recipes", async () => {
+    const user = userEvent.setup();
+    const oldRecipe = structuredClone(DEFAULT_RECIPE);
+    oldRecipe.steps[0].details = "Older saved method";
+    delete oldRecipe.steps[0].tool;
+    const otherRecipe = {
+      ...structuredClone(DEFAULT_RECIPE),
+      id: "my-recipe",
+      title: "My own recipe",
+    };
+    window.localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        schemaVersion: 1,
+        activeRecipeId: oldRecipe.id,
+        recipes: [oldRecipe, otherRecipe],
+        theme: "dark",
+        view: "flow",
+        servingsByRecipe: { [oldRecipe.id]: 2, [otherRecipe.id]: 4 },
+      }),
+    );
+    const confirm = vi
+      .spyOn(window, "confirm")
+      .mockReturnValueOnce(false)
+      .mockReturnValue(true);
+    render(<App />);
+    await user.click(screen.getByLabelText("Recipe file menu"));
+    await user.click(
+      screen.getByRole("button", { name: "Restore brownie example" }),
+    );
+    expect(screen.getByLabelText("Whisk dry details")).toHaveValue(
+      "Older saved method",
+    );
+    await user.click(
+      screen.getByRole("button", { name: "Restore brownie example" }),
+    );
+    expect(confirm).toHaveBeenCalledTimes(2);
+    await waitFor(() => {
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY)!);
+      expect(saved.recipes).toEqual([DEFAULT_RECIPE, otherRecipe]);
+      expect(saved.servingsByRecipe[oldRecipe.id]).toBe(2);
+      expect(saved.theme).toBe("dark");
+    });
+  });
+
   it("loads the default recipe and switches visualization and servings", async () => {
     const user = userEvent.setup();
     render(<App />);
@@ -28,11 +73,21 @@ describe("Recipe Visualizer workspace", () => {
       "data-view",
       "flow",
     );
+    expect(screen.getByTestId("diagram-method-key")).toHaveTextContent(
+      "METHOD • FOLLOW THE NUMBERS",
+    );
+    expect(
+      screen.getByLabelText(/Step 5: Fold dry into wet.*two additions/i),
+    ).toHaveAttribute("aria-label", expect.stringContaining("Look for:"));
 
     await user.click(screen.getByTestId("matrix-view"));
     expect(screen.getByTestId("recipe-artboard")).toHaveAttribute(
       "data-view",
       "matrix",
+    );
+    expect(screen.getByLabelText(/Step 1: Whisk dry.*30 sec/i)).toHaveAttribute(
+      "aria-label",
+      expect.stringContaining("no pale flour"),
     );
 
     await user.click(screen.getByRole("button", { name: "Show 2 servings" }));
@@ -47,7 +102,9 @@ describe("Recipe Visualizer workspace", () => {
     render(<App />);
 
     await user.click(screen.getByRole("button", { name: "New recipe" }));
-    expect(screen.getByLabelText("Recipe title")).toHaveValue("Untitled recipe");
+    expect(screen.getByLabelText("Recipe title")).toHaveValue(
+      "Untitled recipe",
+    );
     expect(
       screen.getByRole("heading", { name: "Connect the recipe first" }),
     ).toBeInTheDocument();
@@ -56,9 +113,9 @@ describe("Recipe Visualizer workspace", () => {
     await user.type(screen.getByLabelText("Recipe title"), "Summer soup");
 
     await waitFor(() => {
-      expect(window.localStorage.getItem("recipe-visualizer:library:v1")).toContain(
-        "Summer soup",
-      );
+      expect(
+        window.localStorage.getItem("recipe-visualizer:library:v1"),
+      ).toContain("Summer soup");
     });
   });
 
@@ -73,7 +130,7 @@ describe("Recipe Visualizer workspace", () => {
     expect(document.documentElement).toHaveAttribute("data-theme", "dark");
 
     await user.click(screen.getByTestId("matrix-view"));
-    expect(screen.getByText("fudgy brownies").closest("text")).toHaveAttribute(
+    expect(screen.getByText("fudgy").closest("text")).toHaveAttribute(
       "fill",
       "#B8FF3D",
     );
@@ -90,8 +147,78 @@ describe("Recipe Visualizer workspace", () => {
 
     expect(prepNote).toHaveFocus();
     expect(prepNote).toHaveValue(
-      "Butter and flour an 8×8-in pan updated",
+      "Butter and flour an 8×8-in pan; line the bottom with parchment updated",
     );
+  });
+
+  it("edits featured emphasis independently from the ingredient line style", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    expect(
+      screen.getByLabelText("fresh brewed espresso line style"),
+    ).toHaveValue("liquid");
+    expect(
+      screen.getByLabelText("Feature fresh brewed espresso"),
+    ).toBeChecked();
+    expect(screen.getByLabelText("cocoa powder line style")).toHaveValue("dry");
+
+    await user.click(screen.getByLabelText("Feature fresh brewed espresso"));
+
+    await waitFor(() => {
+      const saved = JSON.parse(
+        window.localStorage.getItem(STORAGE_KEY) ?? "{}",
+      ) as {
+        recipes?: (typeof DEFAULT_RECIPE)[];
+      };
+      expect(saved.recipes?.[0].ingredients[3]).toMatchObject({
+        visualStyle: "liquid",
+      });
+      expect(saved.recipes?.[0].ingredients[3].featured).toBeUndefined();
+    });
+  });
+
+  it("edits and persists structured operation instructions", async () => {
+    const user = userEvent.setup();
+    render(<App />);
+
+    const method = screen.getByLabelText("Whisk dry details");
+    const minimum = screen.getByLabelText("Whisk dry minimum timing");
+    const maximum = screen.getByLabelText("Whisk dry maximum timing");
+    const unit = screen.getByLabelText("Whisk dry timing unit");
+    const tool = screen.getByLabelText("Whisk dry tool");
+    const setting = screen.getByLabelText("Whisk dry setting");
+    const cue = screen.getByLabelText("Whisk dry cue");
+
+    await user.clear(method);
+    await user.type(method, "Whisk all dry ingredients together thoroughly.");
+    await user.clear(minimum);
+    await user.type(minimum, "20");
+    await user.type(maximum, "40");
+    await user.selectOptions(unit, "seconds");
+    await user.clear(tool);
+    await user.type(tool, "Fine whisk");
+    await user.clear(setting);
+    await user.type(setting, "Quickly");
+    await user.clear(cue);
+    await user.type(cue, "No visible flour pockets.");
+
+    await waitFor(() => {
+      const saved = JSON.parse(
+        window.localStorage.getItem(STORAGE_KEY) ?? "{}",
+      ) as {
+        recipes?: (typeof DEFAULT_RECIPE)[];
+      };
+      const savedStep = saved.recipes?.[0].steps[0];
+      expect(savedStep).toMatchObject({
+        details: "Whisk all dry ingredients together thoroughly.",
+        timing: { minimum: 20, maximum: 40, unit: "seconds" },
+        tool: "Fine whisk",
+        setting: "Quickly",
+        cue: "No visible flour pockets.",
+      });
+      expect(savedStep?.durationMinutes).toBeUndefined();
+    });
   });
 
   it("does not accept a negative ingredient amount as ready data", async () => {
@@ -177,8 +304,9 @@ describe("Recipe Visualizer workspace", () => {
     expect(screen.getByLabelText("Recipe title")).toHaveValue(
       "Espresso Brownies",
     );
-    expect(screen.getByText(/1 structurally valid recipe was recovered/i))
-      .toBeInTheDocument();
+    expect(
+      screen.getByText(/1 structurally valid recipe was recovered/i),
+    ).toBeInTheDocument();
     await waitFor(() => {
       const saved = JSON.parse(
         window.localStorage.getItem(STORAGE_KEY) ?? "{}",

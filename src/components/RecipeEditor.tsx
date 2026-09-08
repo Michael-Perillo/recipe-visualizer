@@ -8,11 +8,12 @@ import {
   ListTree,
   Trash2,
 } from "lucide-react";
+import { useState } from "react";
 import {
   RECIPE_LIMITS,
   normalizeAmount,
-  normalizeDuration,
   normalizeServings,
+  normalizeTimingValue,
 } from "../domain/limits";
 import { makeId, validateRecipe } from "../domain/recipe";
 import type {
@@ -21,38 +22,15 @@ import type {
   NodeRef,
   RecipeDocumentV1,
   RecipeStep,
+  StepTiming,
+  TimingUnit,
 } from "../domain/types";
-import { INGREDIENT_STYLE_LABELS } from "../domain/types";
+import { INGREDIENT_LINE_STYLE_LABELS } from "../domain/types";
 import { useAppState } from "../state/AppState";
+import { Button, SectionHeading, StatusBadge } from "./ui";
 
-const fieldClass =
-  "w-full rounded-xl border border-black/10 bg-white px-3 py-2.5 text-sm font-semibold text-stone-950 outline-none transition placeholder:text-stone-400 focus:border-lime-500 focus:ring-4 focus:ring-lime-400/20 dark:border-white/10 dark:bg-white/[0.055] dark:text-stone-50 dark:placeholder:text-stone-600";
-const labelClass =
-  "mb-1.5 block text-[11px] font-extrabold uppercase tracking-[0.14em] text-stone-600 dark:text-stone-400";
-
-function SectionHeading({
-  icon,
-  title,
-  eyebrow,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  eyebrow: string;
-}) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="grid size-10 shrink-0 place-items-center rounded-2xl bg-lime-300 text-stone-950">
-        {icon}
-      </span>
-      <div>
-        <p className="text-[10px] font-extrabold uppercase tracking-[0.18em] text-stone-600 dark:text-stone-400">
-          {eyebrow}
-        </p>
-        <h2 className="text-base font-extrabold tracking-tight">{title}</h2>
-      </div>
-    </div>
-  );
-}
+const fieldClass = "rv-field";
+const labelClass = "rv-label";
 
 function updateIngredientInRecipe(
   recipe: RecipeDocumentV1,
@@ -108,7 +86,7 @@ function IngredientEditor({
   };
 
   return (
-    <article className="rounded-2xl border border-black/[0.07] bg-white/80 p-3 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.035]">
+    <article className="rv-editor-card">
       <div className="mb-3 flex items-center gap-2">
         <GripVertical
           className="size-4 text-stone-300 dark:text-stone-600"
@@ -207,20 +185,50 @@ function IngredientEditor({
           <select
             aria-label={`${ingredient.name || "Ingredient"} line style`}
             className={fieldClass}
-            value={ingredient.visualStyle}
+            value={
+              ingredient.visualStyle === "featured"
+                ? "auto"
+                : ingredient.visualStyle
+            }
             onChange={(event) =>
               setIngredient((value) => ({
                 ...value,
-                visualStyle: event.target.value as IngredientStyle,
+                featured:
+                  value.featured === true || value.visualStyle === "featured",
+                visualStyle: event.target.value as Exclude<
+                  IngredientStyle,
+                  "featured"
+                >,
               }))
             }
           >
-            {Object.entries(INGREDIENT_STYLE_LABELS).map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
+            {Object.entries(INGREDIENT_LINE_STYLE_LABELS).map(
+              ([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ),
+            )}
           </select>
+        </label>
+        <label className="flex min-h-11 items-center gap-2 self-end rounded-xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold text-stone-700 dark:border-white/10 dark:bg-white/[0.055] dark:text-stone-300">
+          <input
+            aria-label={`Feature ${ingredient.name || "ingredient"}`}
+            type="checkbox"
+            checked={
+              ingredient.featured === true ||
+              ingredient.visualStyle === "featured"
+            }
+            onChange={(event) =>
+              setIngredient((value) => ({
+                ...value,
+                visualStyle:
+                  value.visualStyle === "featured" ? "auto" : value.visualStyle,
+                featured: event.target.checked || undefined,
+              }))
+            }
+          />
+          Featured emphasis
         </label>
       </div>
 
@@ -382,6 +390,28 @@ function StepEditor({
 }) {
   const setStep = (updater: (value: RecipeStep) => RecipeStep) =>
     onChange(updateStepInRecipe(recipe, step.id, updater));
+  const timing: StepTiming | undefined =
+    step.timing ??
+    (step.durationMinutes !== undefined
+      ? {
+          minimum: step.durationMinutes,
+          unit: "minutes",
+        }
+      : undefined);
+  const [minimumTimingDraft, setMinimumTimingDraft] = useState<string | null>(
+    null,
+  );
+  const [maximumTimingDraft, setMaximumTimingDraft] = useState<string | null>(
+    null,
+  );
+
+  const setTiming = (nextTiming: StepTiming | undefined) => {
+    setStep((value) => {
+      const next = { ...value, timing: nextTiming };
+      delete next.durationMinutes;
+      return next;
+    });
+  };
 
   const usedElsewhere = new Set(
     recipe.steps
@@ -398,7 +428,10 @@ function StepEditor({
       kind: "step" as const,
       id: candidate.id,
     })),
-  ].filter((candidate) => selected.has(candidate.id) || !usedElsewhere.has(candidate.id));
+  ].filter(
+    (candidate) =>
+      selected.has(candidate.id) || !usedElsewhere.has(candidate.id),
+  );
 
   const toggleInput = (ref: NodeRef) => {
     setStep((value) => ({
@@ -427,7 +460,7 @@ function StepEditor({
   };
 
   return (
-    <article className="rounded-2xl border border-black/[0.07] bg-white/80 p-3 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.035]">
+    <article className="rv-editor-card">
       <div className="mb-3 flex items-center gap-2">
         <span className="grid size-8 shrink-0 place-items-center rounded-full bg-stone-900 text-xs font-black text-white dark:bg-lime-300 dark:text-stone-950">
           {index + 1}
@@ -453,13 +486,13 @@ function StepEditor({
       </div>
 
       <label>
-        <span className={labelClass}>What happens</span>
-        <input
+        <span className={labelClass}>Method</span>
+        <textarea
           aria-label={`${step.label || "Operation"} details`}
-          className={fieldClass}
+          className={`${fieldClass} min-h-24 resize-y`}
           value={step.details ?? ""}
           maxLength={RECIPE_LIMITS.longText}
-          placeholder="Whisk until glossy"
+          placeholder="Describe exactly what to do and in what order."
           onChange={(event) =>
             setStep((value) => ({
               ...value,
@@ -468,6 +501,133 @@ function StepEditor({
           }
         />
       </label>
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <label>
+          <span className={labelClass}>Tool</span>
+          <input
+            aria-label={`${step.label || "Operation"} tool`}
+            className={fieldClass}
+            value={step.tool ?? ""}
+            maxLength={RECIPE_LIMITS.shortText}
+            placeholder="Balloon whisk"
+            onChange={(event) =>
+              setStep((value) => ({
+                ...value,
+                tool: event.target.value || undefined,
+              }))
+            }
+          />
+        </label>
+        <label>
+          <span className={labelClass}>Speed / setting</span>
+          <input
+            aria-label={`${step.label || "Operation"} setting`}
+            className={fieldClass}
+            value={step.setting ?? ""}
+            maxLength={RECIPE_LIMITS.shortText}
+            placeholder="Brisk or low heat"
+            onChange={(event) =>
+              setStep((value) => ({
+                ...value,
+                setting: event.target.value || undefined,
+              }))
+            }
+          />
+        </label>
+      </div>
+
+      <fieldset className="mt-3">
+        <legend className={labelClass}>Timing</legend>
+        <div className="grid grid-cols-[1fr_1fr_1.25fr] gap-2">
+          <label>
+            <span className="sr-only">Minimum timing</span>
+            <input
+              aria-label={`${step.label || "Operation"} minimum timing`}
+              className={fieldClass}
+              type="number"
+              min="0.01"
+              step="any"
+              value={minimumTimingDraft ?? timing?.minimum ?? ""}
+              placeholder="Min"
+              onChange={(event) => {
+                setMinimumTimingDraft(event.target.value);
+                if (event.target.value === "") {
+                  setMinimumTimingDraft(null);
+                  setTiming(undefined);
+                  return;
+                }
+                const unit = timing?.unit ?? "minutes";
+                const minimum = normalizeTimingValue(event.target.value, unit);
+                if (minimum === undefined) return;
+                setMinimumTimingDraft(null);
+                setTiming({
+                  minimum,
+                  maximum:
+                    timing?.maximum !== undefined && timing.maximum >= minimum
+                      ? timing.maximum
+                      : undefined,
+                  unit,
+                });
+              }}
+            />
+          </label>
+          <label>
+            <span className="sr-only">Maximum timing</span>
+            <input
+              aria-label={`${step.label || "Operation"} maximum timing`}
+              className={fieldClass}
+              type="number"
+              min="0.01"
+              step="any"
+              value={maximumTimingDraft ?? timing?.maximum ?? ""}
+              placeholder="Max"
+              disabled={!timing}
+              onChange={(event) => {
+                if (!timing) return;
+                setMaximumTimingDraft(event.target.value);
+                if (event.target.value === "") {
+                  setMaximumTimingDraft(null);
+                  setTiming({ ...timing, maximum: undefined });
+                  return;
+                }
+                const maximum = normalizeTimingValue(
+                  event.target.value,
+                  timing.unit,
+                );
+                if (maximum === undefined || maximum < timing.minimum) return;
+                setMaximumTimingDraft(null);
+                setTiming({ ...timing, maximum });
+              }}
+            />
+          </label>
+          <label>
+            <span className="sr-only">Timing unit</span>
+            <select
+              aria-label={`${step.label || "Operation"} timing unit`}
+              className={fieldClass}
+              value={timing?.unit ?? "minutes"}
+              disabled={!timing}
+              onChange={(event) => {
+                if (!timing) return;
+                const unit = event.target.value as TimingUnit;
+                if (
+                  normalizeTimingValue(timing.minimum, unit) === undefined ||
+                  (timing.maximum !== undefined &&
+                    normalizeTimingValue(timing.maximum, unit) === undefined)
+                ) {
+                  return;
+                }
+                setTiming({ ...timing, unit });
+              }}
+            >
+              <option value="seconds">Seconds</option>
+              <option value="minutes">Minutes</option>
+              <option value="hours">Hours</option>
+            </select>
+          </label>
+        </div>
+      </fieldset>
 
       <div className="mt-3 grid grid-cols-2 gap-2">
         <label>
@@ -486,30 +646,24 @@ function StepEditor({
             }
           />
         </label>
-        <label>
-          <span className={labelClass}>Minutes</span>
-          <input
-            aria-label={`${step.label || "Operation"} duration`}
-            className={fieldClass}
-            type="number"
-            min="0"
-            max={RECIPE_LIMITS.durationMinutes}
-            step="1"
-            value={step.durationMinutes ?? ""}
-            placeholder="30"
-            onChange={(event) => {
-              const duration =
-                event.target.value === ""
-                  ? undefined
-                  : normalizeDuration(event.target.value);
-              setStep((value) => ({
-                ...value,
-                durationMinutes: duration,
-              }));
-            }}
-          />
-        </label>
       </div>
+
+      <label className="mt-3 block">
+        <span className={labelClass}>Look for</span>
+        <textarea
+          aria-label={`${step.label || "Operation"} cue`}
+          className={`${fieldClass} min-h-20 resize-y`}
+          value={step.cue ?? ""}
+          maxLength={RECIPE_LIMITS.longText}
+          placeholder="Describe the texture, color, or doneness cue."
+          onChange={(event) =>
+            setStep((value) => ({
+              ...value,
+              cue: event.target.value || undefined,
+            }))
+          }
+        />
+      </label>
 
       <fieldset className="mt-3">
         <legend className={labelClass}>Inputs to this operation</legend>
@@ -579,26 +733,17 @@ export function RecipeEditor() {
   };
 
   return (
-    <div
-      data-testid="recipe-editor"
-      className="space-y-5 px-4 pb-12 pt-5 sm:px-5"
-    >
-      <section className="rounded-3xl border border-black/[0.07] bg-stone-50 p-4 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.025]">
+    <div data-testid="recipe-editor" className="space-y-4 px-4 pb-12 pt-4">
+      <section className="rv-panel">
         <div className="mb-4 flex items-center justify-between gap-3">
           <SectionHeading
             eyebrow="01 / Identity"
             title="Recipe details"
             icon={<ChefHat className="size-5" />}
           />
-          <span
-            className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.13em] ${
-              issues.length === 0
-                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
-                : "bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300"
-            }`}
-          >
+          <StatusBadge tone={issues.length === 0 ? "success" : "warning"}>
             {issues.length === 0 ? "Ready" : `${issues.length} fixes`}
-          </span>
+          </StatusBadge>
         </div>
         <div className="space-y-3">
           <label>
@@ -651,7 +796,7 @@ export function RecipeEditor() {
         </div>
       </section>
 
-      <section className="rounded-3xl border border-black/[0.07] bg-stone-50 p-4 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.025]">
+      <section className="rv-panel">
         <SectionHeading
           eyebrow="02 / Before you start"
           title="Prep notes"
@@ -660,9 +805,10 @@ export function RecipeEditor() {
         <div className="mt-4 space-y-2">
           {recipe.prepNotes.map((note, index) => (
             <div key={index} className="flex gap-2">
-              <input
+              <textarea
                 className={fieldClass}
                 aria-label={`Prep note ${index + 1}`}
+                rows={3}
                 value={note}
                 maxLength={RECIPE_LIMITS.longText}
                 placeholder="Preheat the oven…"
@@ -692,9 +838,9 @@ export function RecipeEditor() {
               </button>
             </div>
           ))}
-          <button
-            type="button"
-            className="mt-1 flex min-h-10 items-center gap-2 rounded-xl border border-dashed border-black/15 px-3 text-xs font-extrabold text-stone-600 hover:border-lime-500 hover:text-stone-950 dark:border-white/15 dark:text-stone-400 dark:hover:text-white"
+          <Button
+            variant="add"
+            className="mt-1"
             disabled={recipe.prepNotes.length >= RECIPE_LIMITS.prepNotes}
             title={
               recipe.prepNotes.length >= RECIPE_LIMITS.prepNotes
@@ -707,11 +853,11 @@ export function RecipeEditor() {
           >
             <CirclePlus className="size-4" />
             Add prep note
-          </button>
+          </Button>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-black/[0.07] bg-stone-50 p-4 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.025]">
+      <section className="rv-panel">
         <div className="flex items-center justify-between gap-3">
           <SectionHeading
             eyebrow="03 / Inputs"
@@ -732,9 +878,9 @@ export function RecipeEditor() {
               onChange={onChange}
             />
           ))}
-          <button
-            type="button"
-            className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-black/15 text-sm font-extrabold text-stone-600 transition hover:border-lime-500 hover:bg-lime-50 hover:text-stone-950 dark:border-white/15 dark:text-stone-400 dark:hover:bg-lime-400/10 dark:hover:text-white"
+          <Button
+            variant="add"
+            className="w-full"
             disabled={recipe.ingredients.length >= RECIPE_LIMITS.ingredients}
             title={
               recipe.ingredients.length >= RECIPE_LIMITS.ingredients
@@ -745,11 +891,11 @@ export function RecipeEditor() {
           >
             <CirclePlus className="size-4" />
             Add ingredient
-          </button>
+          </Button>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-black/[0.07] bg-stone-50 p-4 shadow-sm dark:border-white/[0.07] dark:bg-white/[0.025]">
+      <section className="rv-panel">
         <div className="flex items-center justify-between gap-3">
           <SectionHeading
             eyebrow="04 / Transformation"
@@ -770,9 +916,9 @@ export function RecipeEditor() {
               onChange={onChange}
             />
           ))}
-          <button
-            type="button"
-            className="flex min-h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-black/15 text-sm font-extrabold text-stone-600 transition hover:border-lime-500 hover:bg-lime-50 hover:text-stone-950 dark:border-white/15 dark:text-stone-400 dark:hover:bg-lime-400/10 dark:hover:text-white"
+          <Button
+            variant="add"
+            className="w-full"
             disabled={recipe.steps.length >= RECIPE_LIMITS.steps}
             title={
               recipe.steps.length >= RECIPE_LIMITS.steps
@@ -783,7 +929,7 @@ export function RecipeEditor() {
           >
             <CirclePlus className="size-4" />
             Add operation
-          </button>
+          </Button>
         </div>
 
         {recipe.steps.length > 0 ? (
@@ -824,7 +970,10 @@ export function RecipeEditor() {
           </div>
           <ul className="space-y-1 pl-5 text-xs font-semibold leading-relaxed">
             {issues.slice(0, 6).map((issue) => (
-              <li key={`${issue.code}-${issue.path ?? ""}`} className="list-disc">
+              <li
+                key={`${issue.code}-${issue.path ?? ""}`}
+                className="list-disc"
+              >
                 {issue.message}
               </li>
             ))}

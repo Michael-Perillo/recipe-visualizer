@@ -23,21 +23,13 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import {
-  type ChangeEvent,
-  type RefObject,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
-import { FlowDiagram } from "./components/diagram/FlowDiagram";
-import { MatrixDiagram } from "./components/diagram/MatrixDiagram";
+import { type ChangeEvent, type RefObject, useRef, useState } from "react";
+import { RecipeDiagram } from "./components/diagram/RecipeDiagram";
 import { RecipeEditor } from "./components/RecipeEditor";
+import { DEFAULT_RECIPE } from "./data/defaultRecipe";
+import { SegmentedControl, StatusBadge } from "./components/ui";
 import { RECIPE_LIMITS, normalizeServings } from "./domain/limits";
-import {
-  normalizeRecipeStepOrder,
-  validateRecipe,
-} from "./domain/recipe";
+import { normalizeRecipeStepOrder, validateRecipe } from "./domain/recipe";
 import { recipeDocumentSchema } from "./domain/schema";
 import {
   buildExportName,
@@ -45,13 +37,14 @@ import {
   downloadRecoveryJson,
   downloadRecipeJson,
   downloadSvg,
+  composeRecipeExport,
 } from "./lib/export";
 import { AppStateProvider, useAppState } from "./state/AppState";
 
 function AppLogo() {
   return (
     <div className="flex items-center gap-3">
-      <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-2xl bg-stone-950 text-lime-300 shadow-[0_8px_24px_rgba(0,0,0,0.18)] dark:bg-lime-300 dark:text-stone-950">
+      <div className="relative grid size-10 shrink-0 place-items-center overflow-hidden rounded-xl bg-[var(--rv-ink)] text-[var(--rv-accent)] dark:bg-[var(--rv-accent)] dark:text-[var(--rv-accent-ink)]">
         <span className="absolute left-1.5 top-1.5 size-1.5 rounded-full bg-current" />
         <span className="absolute bottom-1.5 right-1.5 size-1.5 rounded-full bg-current" />
         <WandSparkles className="size-5" />
@@ -71,23 +64,27 @@ function AppLogo() {
 function SaveIndicator() {
   const { saveStatus } = useAppState();
   const label =
-    saveStatus === "saved"
-      ? "Saved locally"
-      : saveStatus === "saving"
-        ? "Saving…"
-        : "Local save unavailable";
+    saveStatus === "demo"
+      ? "Demo · not saved"
+      : saveStatus === "saved"
+        ? "Saved locally"
+        : saveStatus === "saving"
+          ? "Saving…"
+          : "Local save unavailable";
   return (
-    <span
-      aria-live="polite"
-      className="hidden items-center gap-1.5 rounded-full bg-stone-100 px-2.5 py-1.5 text-[10px] font-extrabold uppercase tracking-[0.12em] text-stone-600 md:flex dark:bg-white/[0.06] dark:text-stone-400"
-    >
-      {saveStatus === "saved" ? (
-        <Check className="size-3 text-emerald-600 dark:text-emerald-400" />
-      ) : (
-        <span className="size-2 animate-pulse rounded-full bg-amber-500" />
-      )}
-      {label}
-    </span>
+    <div className="hidden md:block">
+      <StatusBadge
+        aria-live="polite"
+        tone={saveStatus === "unavailable" ? "warning" : "neutral"}
+      >
+        {saveStatus === "saved" ? (
+          <Check className="size-3 text-emerald-600 dark:text-emerald-400" />
+        ) : saveStatus !== "demo" ? (
+          <span className="size-2 animate-pulse rounded-full bg-amber-500" />
+        ) : null}
+        {label}
+      </StatusBadge>
+    </div>
   );
 }
 
@@ -230,6 +227,30 @@ function LibraryControls() {
               <Upload className="size-4" />
               Import recipe JSON
             </button>
+            {activeRecipe.id === DEFAULT_RECIPE.id ? (
+              <button
+                type="button"
+                className="menu-item"
+                onClick={(event) => {
+                  if (
+                    !window.confirm(
+                      "Replace this saved brownie recipe with the detailed seven-step example? Export your current recipe first if you want to keep it.",
+                    )
+                  )
+                    return;
+                  dispatch({
+                    type: "replace-active",
+                    recipe: structuredClone(DEFAULT_RECIPE),
+                  });
+                  event.currentTarget
+                    .closest("details")
+                    ?.removeAttribute("open");
+                }}
+              >
+                <RefreshCcw className="size-4" />
+                Restore brownie example
+              </button>
+            ) : null}
             <button
               type="button"
               className="menu-item sm:hidden"
@@ -280,8 +301,10 @@ function LibraryControls() {
         <SaveIndicator />
         <button
           type="button"
-          className="header-icon hidden lg:grid"
-          aria-label={editorCollapsed ? "Open recipe editor" : "Close recipe editor"}
+          className="header-icon hidden xl:grid"
+          aria-label={
+            editorCollapsed ? "Open recipe editor" : "Close recipe editor"
+          }
           title={editorCollapsed ? "Open editor" : "Close editor"}
           onClick={() => dispatch({ type: "toggle-editor" })}
         >
@@ -393,9 +416,12 @@ function DataSafetyNotices() {
           <div className="flex items-start gap-3">
             <RefreshCcw className="mt-0.5 size-5 shrink-0" />
             <div className="flex-1">
-              <p className="text-sm font-black">Another tab changed this library</p>
+              <p className="text-sm font-black">
+                Another tab changed this library
+              </p>
               <p className="mt-1 text-xs font-semibold">
-                Choose which complete browser copy to keep. Changes are not merged.
+                Choose which complete browser copy to keep. Changes are not
+                merged.
               </p>
               <div className="mt-3 flex gap-2">
                 <button
@@ -430,13 +456,7 @@ function PreviewToolbar({
   setZoom: (value: number) => void;
   svgRef: RefObject<SVGSVGElement | null>;
 }) {
-  const {
-    activeRecipe,
-    view,
-    theme,
-    servings,
-    dispatch,
-  } = useAppState();
+  const { activeRecipe, view, theme, servings, dispatch } = useAppState();
   const issues = validateRecipe(activeRecipe);
   const canExport = issues.length === 0;
   const [exporting, setExporting] = useState<"svg" | "png" | null>(null);
@@ -454,14 +474,21 @@ function PreviewToolbar({
         theme,
         format,
       );
+      const exported = await composeRecipeExport(
+        svgRef.current,
+        activeRecipe,
+        theme,
+      );
       if (format === "svg") {
-        await downloadSvg(svgRef.current, filename);
+        await downloadSvg(exported, filename);
       } else {
-        await downloadPng(svgRef.current, filename);
+        await downloadPng(exported, filename);
       }
     } catch (error) {
       setExportError(
-        error instanceof Error ? error.message : "The export could not be created.",
+        error instanceof Error
+          ? error.message
+          : "The export could not be created.",
       );
     } finally {
       setExporting(null);
@@ -469,31 +496,19 @@ function PreviewToolbar({
   };
 
   return (
-    <div className="border-b border-black/[0.07] bg-white/90 px-3 py-2.5 backdrop-blur-xl dark:border-white/[0.07] dark:bg-stone-950/90 sm:px-4">
+    <div className="rv-toolbar px-3 py-3 sm:px-4">
       <div className="flex flex-wrap items-center gap-2">
-        <div
-          className="flex rounded-xl bg-stone-100 p-1 dark:bg-white/[0.06]"
-          aria-label="Visualization style"
-        >
-          {(["matrix", "flow"] as const).map((candidate) => (
-            <button
-              key={candidate}
-              type="button"
-              data-testid={`${candidate}-view`}
-              aria-pressed={view === candidate}
-              className={`min-h-9 rounded-lg px-3 text-xs font-extrabold capitalize transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lime-400/25 ${
-                view === candidate
-                  ? "bg-stone-950 text-white shadow-sm dark:bg-lime-300 dark:text-stone-950"
-                  : "text-stone-600 hover:text-stone-950 dark:text-stone-400 dark:hover:text-white"
-              }`}
-              onClick={() => dispatch({ type: "set-view", view: candidate })}
-            >
-              {candidate}
-            </button>
-          ))}
-        </div>
+        <SegmentedControl
+          label="Visualization style"
+          value={view}
+          options={[
+            { value: "matrix", label: "Matrix", testId: "matrix-view" },
+            { value: "flow", label: "Flow", testId: "flow-view" },
+          ]}
+          onChange={(view) => dispatch({ type: "set-view", view })}
+        />
 
-        <div className="flex items-center gap-1 rounded-xl border border-black/[0.07] bg-white p-1 dark:border-white/[0.08] dark:bg-white/[0.03]">
+        <div className="rv-control-group">
           <span className="hidden px-2 text-[9px] font-black uppercase tracking-[0.14em] text-stone-600 dark:text-stone-400 sm:inline">
             Serves
           </span>
@@ -505,8 +520,8 @@ function PreviewToolbar({
               aria-pressed={servings === value}
               className={`size-8 rounded-lg text-xs font-black transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-lime-400/25 ${
                 servings === value
-                  ? "bg-lime-300 text-stone-950"
-                  : "text-stone-600 hover:bg-stone-100 dark:hover:bg-white/[0.07]"
+                  ? "bg-[var(--rv-accent)] text-[var(--rv-accent-ink)]"
+                  : "text-[var(--rv-muted)] hover:bg-[var(--rv-surface)]"
               }`}
               onClick={() =>
                 dispatch({
@@ -540,13 +555,13 @@ function PreviewToolbar({
           />
         </div>
 
-        <div className="ml-auto flex items-center gap-1 rounded-xl border border-black/[0.07] bg-white p-1 dark:border-white/[0.08] dark:bg-white/[0.03]">
+        <div className="rv-control-group ml-auto">
           <button
             type="button"
             className="toolbar-icon"
             aria-label="Zoom out"
             title="Zoom out"
-            onClick={() => setZoom(Math.max(70, zoom - 10))}
+            onClick={() => setZoom(Math.max(50, zoom - 10))}
           >
             <ZoomOut className="size-4" />
           </button>
@@ -566,7 +581,7 @@ function PreviewToolbar({
             type="button"
             className="toolbar-icon"
             aria-label="Reset zoom"
-            title="Fit diagram"
+            title="Reset map to readable size"
             onClick={() => setZoom(100)}
           >
             <RotateCcw className="size-4" />
@@ -575,10 +590,8 @@ function PreviewToolbar({
 
         <details className="relative">
           <summary
-            className={`flex min-h-10 list-none items-center gap-2 rounded-xl px-3 text-xs font-black transition ${
-              canExport
-                ? "bg-stone-950 text-white hover:bg-stone-800 dark:bg-lime-300 dark:text-stone-950 dark:hover:bg-lime-200"
-                : "cursor-not-allowed bg-stone-200 text-stone-400 dark:bg-white/[0.05] dark:text-stone-600"
+            className={`rv-button list-none ${
+              canExport ? "rv-button--primary" : "cursor-not-allowed opacity-45"
             }`}
             aria-label="Export visualization"
           >
@@ -605,7 +618,7 @@ function PreviewToolbar({
               onClick={() => void runExport("png")}
             >
               <Download className="size-4" />
-              Download PNG · 2×
+              Download PNG · up to 2×
             </button>
           </div>
         </details>
@@ -628,68 +641,6 @@ function DiagramCanvas({
 }) {
   const { activeRecipe, servings, theme, view, dispatch } = useAppState();
   const issues = validateRecipe(activeRecipe);
-  const scrollAreaRef = useRef<HTMLDivElement>(null);
-  const [fitWidth, setFitWidth] = useState<number | null>(null);
-
-  useLayoutEffect(() => {
-    const scrollArea = scrollAreaRef.current;
-    const artboard = svgRef.current;
-    if (!scrollArea || !artboard) return;
-
-    const updateFitWidth = () => {
-      const viewBox = (artboard.getAttribute("viewBox") ?? "")
-        .split(/\s+/)
-        .map(Number);
-      const [, , artboardWidth, artboardHeight] = viewBox;
-      if (
-        !Number.isFinite(artboardWidth) ||
-        !Number.isFinite(artboardHeight) ||
-        artboardWidth <= 0 ||
-        artboardHeight <= 0
-      ) {
-        return;
-      }
-
-      const styles = window.getComputedStyle(scrollArea);
-      const horizontalPadding =
-        Number.parseFloat(styles.paddingLeft) +
-        Number.parseFloat(styles.paddingRight);
-      const verticalPadding =
-        Number.parseFloat(styles.paddingTop) +
-        Number.parseFloat(styles.paddingBottom);
-      const availableWidth = Math.max(
-        1,
-        scrollArea.clientWidth - horizontalPadding,
-      );
-      const availableHeight = Math.max(
-        1,
-        scrollArea.clientHeight - verticalPadding,
-      );
-      const nextFitWidth = Math.max(
-        1,
-        Math.floor(
-          Math.min(
-            availableWidth,
-            availableHeight * (artboardWidth / artboardHeight),
-          ),
-        ),
-      );
-      setFitWidth((current) =>
-        current === nextFitWidth ? current : nextFitWidth,
-      );
-    };
-
-    updateFitWidth();
-    if (typeof ResizeObserver === "undefined") return;
-
-    const observer = new ResizeObserver(updateFitWidth);
-    observer.observe(scrollArea);
-    return () => observer.disconnect();
-  }, [
-    activeRecipe,
-    svgRef,
-    view,
-  ]);
 
   if (issues.length > 0) {
     return (
@@ -707,7 +658,7 @@ function DiagramCanvas({
           </p>
           <button
             type="button"
-            className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-stone-950 px-4 text-sm font-black text-white dark:bg-lime-300 dark:text-stone-950 lg:hidden"
+            className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl bg-stone-950 px-4 text-sm font-black text-white dark:bg-lime-300 dark:text-stone-950 xl:hidden"
             onClick={() =>
               dispatch({ type: "set-mobile-panel", panel: "editor" })
             }
@@ -722,49 +673,33 @@ function DiagramCanvas({
 
   return (
     <div
-      ref={scrollAreaRef}
       data-testid="diagram-scroll-area"
       aria-label="Scrollable recipe diagram"
       tabIndex={0}
-      className="thin-scrollbar h-full min-h-0 overflow-auto p-3 sm:p-6"
+      className="thin-scrollbar h-full min-h-0 overflow-auto overscroll-contain p-3 sm:p-6"
     >
-      <div
-        className="diagram-paper mx-auto origin-top transition-[width] duration-200"
-        style={{
-          width:
-            fitWidth === null
-              ? "100%"
-              : `${Math.max(1, fitWidth * (zoom / 100))}px`,
-        }}
-      >
-        {view === "matrix" ? (
-          <MatrixDiagram
-            recipe={activeRecipe}
-            servings={servings}
-            theme={theme}
-            svgRef={svgRef}
-          />
-        ) : (
-          <FlowDiagram
-            recipe={activeRecipe}
-            servings={servings}
-            theme={theme}
-            svgRef={svgRef}
-          />
-        )}
-      </div>
+      <RecipeDiagram
+        recipe={activeRecipe}
+        servings={servings}
+        theme={theme}
+        view={view}
+        svgRef={svgRef}
+        zoom={zoom}
+      />
     </div>
   );
 }
 
-function Workspace() {
-  const { mobilePanel, editorCollapsed, dispatch } = useAppState();
+export function Workspace() {
+  const { mobilePanel, editorCollapsed, dispatch, theme } = useAppState();
   const svgRef = useRef<SVGSVGElement>(null);
   const [zoom, setZoom] = useState(100);
 
   return (
-    <div className="flex h-dvh min-h-[620px] flex-col overflow-hidden bg-[#f4f1e9] text-stone-950 dark:bg-[#11120f] dark:text-stone-50">
-      <header className="relative z-50 flex min-h-[64px] shrink-0 items-center gap-3 border-b border-black/[0.07] bg-[#f4f1e9]/95 px-3 backdrop-blur-xl dark:border-white/[0.07] dark:bg-[#11120f]/95 sm:px-4">
+    <div
+      className={`rv-theme rv-workspace ${theme === "dark" ? "dark" : ""} flex h-full min-h-0 flex-col overflow-hidden`}
+    >
+      <header className="rv-header relative z-50 flex min-h-[64px] shrink-0 items-center gap-3 px-3 sm:px-4">
         <AppLogo />
         <div className="hidden h-7 w-px bg-black/10 sm:block dark:bg-white/10" />
         <LibraryControls />
@@ -773,48 +708,46 @@ function Workspace() {
 
       <nav
         aria-label="Mobile workspace view"
-        className="grid shrink-0 grid-cols-2 border-b border-black/[0.07] bg-white p-1.5 dark:border-white/[0.07] dark:bg-stone-950 lg:hidden"
+        className="grid shrink-0 grid-cols-2 border-b border-black/[0.07] bg-white p-1.5 dark:border-white/[0.07] dark:bg-stone-950 xl:hidden"
       >
         {(["editor", "preview"] as const).map((panel) => (
           <button
             key={panel}
             type="button"
             aria-pressed={mobilePanel === panel}
-            className={`min-h-10 rounded-xl text-xs font-black capitalize ${
+            className={`min-h-10 rounded-lg text-xs font-extrabold capitalize ${
               mobilePanel === panel
-                ? "bg-stone-950 text-white dark:bg-lime-300 dark:text-stone-950"
+                ? "bg-[var(--rv-accent)] text-[var(--rv-accent-ink)]"
                 : "text-stone-600 dark:text-stone-400"
             }`}
-            onClick={() =>
-              dispatch({ type: "set-mobile-panel", panel })
-            }
+            onClick={() => dispatch({ type: "set-mobile-panel", panel })}
           >
             {panel}
           </button>
         ))}
       </nav>
 
-      <div className="flex min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <aside
           aria-label="Recipe editor"
-          className={`thin-scrollbar h-full shrink-0 overflow-y-auto border-r border-black/[0.07] bg-[#ebe8df] transition-[width] duration-300 dark:border-white/[0.07] dark:bg-[#171813] ${
+          className={`rv-editor thin-scrollbar h-full shrink-0 overflow-y-auto overscroll-contain border-r transition-[width] duration-300 ${
             mobilePanel === "editor" ? "block w-full" : "hidden"
           } ${
             editorCollapsed
-              ? "lg:block lg:w-0 lg:overflow-hidden lg:border-r-0"
-              : "lg:block lg:w-[420px]"
+              ? "xl:block xl:w-0 xl:overflow-hidden xl:border-r-0"
+              : "xl:block xl:w-[420px]"
           }`}
         >
-          <div className="w-full lg:w-[420px]">
+          <div className="w-full xl:w-[420px]">
             <RecipeEditor />
           </div>
         </aside>
 
         <main
           aria-label="Recipe visualization preview"
-          className={`app-grid min-w-0 flex-1 flex-col bg-[#e8e5dc] dark:bg-[#0e0f0c] ${
+          className={`rv-canvas app-grid min-h-0 min-w-0 flex-1 flex-col overflow-hidden ${
             mobilePanel === "preview" ? "flex" : "hidden"
-          } lg:flex`}
+          } xl:flex`}
         >
           <PreviewToolbar zoom={zoom} setZoom={setZoom} svgRef={svgRef} />
           <div className="min-h-0 flex-1">
