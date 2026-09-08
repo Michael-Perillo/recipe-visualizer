@@ -1,31 +1,48 @@
 import { describe, expect, it } from "vitest";
 import {
   createAnchoredPath,
-  createCoilPath,
   createInboundAnchors,
   createNeutralPath,
   createStraightPath,
   createWavePath,
   getOperationNodeMetrics,
+  getFlowOutputLayout,
   pathForStyle,
 } from "./FlowDiagram";
 
 const start = { x: 10, y: 20 };
 const end = { x: 180, y: 70 };
 
+describe("flow output column", () => {
+  it.each([
+    "fudgy brownies",
+    "layered pantry supper",
+    "toast",
+    "W".repeat(100),
+  ])("reserves a bounded column for %s", (label) => {
+    const layout = getFlowOutputLayout(label, 1410);
+    const halfTextWidth =
+      Math.max(...layout.lines.map((line) => line.length * 16)) / 2;
+    expect(layout.centerX + halfTextWidth).toBeLessThan(layout.width - 54);
+    expect(halfTextWidth).toBeLessThan(112);
+    expect(layout.centerX).toBe(1410);
+    expect(layout.lines.join("").replaceAll(" ", "")).toBe(
+      label.replaceAll(" ", ""),
+    );
+  });
+});
+
 describe("flow path generation", () => {
   it("generates deterministic paths for every semantic style", () => {
-    expect(createStraightPath(start, end)).toBe(
-      "M 10 20 L 108 20 L 180 70",
-    );
+    expect(createStraightPath(start, end)).toBe("M 10 20 L 108 20 L 180 70");
     expect(createWavePath(start, end)).toContain(" Q ");
-    expect(createCoilPath(start, end)).toContain(" C ");
     expect(createNeutralPath(start, end)).toContain(" C ");
     expect(pathForStyle("dry", start, end)).toBe(
       createStraightPath(start, end),
     );
-    expect(pathForStyle("liquid", start, end)).toBe(
-      createWavePath(start, end),
+    expect(pathForStyle("liquid", start, end)).toBe(createWavePath(start, end));
+    expect(pathForStyle("featured", start, end)).toBe(
+      createStraightPath(start, end),
     );
   });
 

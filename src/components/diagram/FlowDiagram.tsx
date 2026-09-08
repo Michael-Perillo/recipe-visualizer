@@ -1,8 +1,9 @@
 import type { RefObject } from "react";
+import { useDiagramDisplayWidth } from "./useDiagramDisplayWidth";
 import {
   buildRecipeGraph,
-  formatAlternateMeasurements,
-  formatIngredientQuantity,
+  formatStepTiming,
+  isIngredientFeatured,
   resolveIngredientStyle,
   scaleIngredient,
 } from "../../domain/recipe";
@@ -14,6 +15,10 @@ import type {
 import {
   DiagramHeader,
   DiagramLegend,
+  DiagramMethodKey,
+  getDiagramHeaderLayout,
+  getIngredientLabelLayout,
+  getMethodKeyLayout,
   getUsedStyles,
   IngredientLabel,
   PALETTES,
@@ -58,18 +63,14 @@ export function createInboundAnchors(
 ): Map<string, Point> {
   if (isFinal) {
     return new Map(
-      sources.map(({ id }) => [
-        id,
-        { x: position.x - 104, y: position.y },
-      ]),
+      sources.map(({ id }) => [id, { x: position.x - 104, y: position.y }]),
     );
   }
 
   const orderedSources = sources
     .map((source, index) => ({ ...source, index }))
     .sort(
-      (left, right) =>
-        left.sourceY - right.sourceY || left.index - right.index,
+      (left, right) => left.sourceY - right.sourceY || left.index - right.index,
     );
   const metrics = getOperationNodeMetrics(sources.length);
   const span =
@@ -122,25 +123,6 @@ function createWaveSegment(start: Point, endX: number): string {
   return path;
 }
 
-export function createCoilPath(start: Point, end: Point): string {
-  const bendX = Math.max(start.x + 42, end.x - 78);
-  const path = createCoilSegment(start, bendX);
-  return `${path} Q ${bendX + 34} ${start.y} ${end.x} ${end.y}`;
-}
-
-function createCoilSegment(start: Point, endX: number): string {
-  const distance = Math.max(1, endX - start.x);
-  const loops = Math.max(2, Math.round(distance / 27));
-  const segment = distance / loops;
-  let path = `M ${start.x} ${start.y}`;
-  for (let index = 0; index < loops; index += 1) {
-    const x = start.x + index * segment;
-    path += ` C ${x + segment * 0.1} ${start.y - 18}, ${x + segment * 0.45} ${start.y - 18}, ${x + segment * 0.5} ${start.y}`;
-    path += ` C ${x + segment * 0.55} ${start.y + 18}, ${x + segment * 0.9} ${start.y + 18}, ${x + segment} ${start.y}`;
-  }
-  return path;
-}
-
 export function createNeutralPath(start: Point, end: Point): string {
   const midpoint = start.x + (end.x - start.x) * 0.55;
   return `M ${start.x} ${start.y} C ${midpoint} ${start.y}, ${midpoint} ${end.y}, ${end.x} ${end.y}`;
@@ -152,7 +134,6 @@ export function pathForStyle(
   end: Point,
 ): string {
   if (style === "liquid") return createWavePath(start, end);
-  if (style === "featured") return createCoilPath(start, end);
   if (style === "neutral") return createNeutralPath(start, end);
   return createStraightPath(start, end);
 }
@@ -173,9 +154,7 @@ export function createAnchoredPath(
     desiredCurveWidth,
     Math.max(42, horizontalDistance - 28),
   );
-  const curveStartX = roundCoordinate(
-    Math.max(start.x, end.x - curveWidth),
-  );
+  const curveStartX = roundCoordinate(Math.max(start.x, end.x - curveWidth));
   const curveDistance = Math.max(1, end.x - curveStartX);
   const firstControl = {
     x: roundCoordinate(curveStartX + curveDistance * 0.42),
@@ -186,19 +165,13 @@ export function createAnchoredPath(
     Math.max(28, curveDistance * 0.24),
   );
   const endControl = {
-    x: roundCoordinate(
-      end.x + (deltaX / distance) * radialControlDistance,
-    ),
-    y: roundCoordinate(
-      end.y + (deltaY / distance) * radialControlDistance,
-    ),
+    x: roundCoordinate(end.x + (deltaX / distance) * radialControlDistance),
+    y: roundCoordinate(end.y + (deltaY / distance) * radialControlDistance),
   };
   let approachPath: string;
 
   if (style === "liquid") {
     approachPath = createWaveSegment(start, curveStartX);
-  } else if (style === "featured") {
-    approachPath = createCoilSegment(start, curveStartX);
   } else {
     approachPath =
       curveStartX > start.x
@@ -220,6 +193,21 @@ function LegendSample({
   y: number;
   palette: DiagramPalette;
 }) {
+  if (style === "featured") {
+    return (
+      <g>
+        <circle
+          cx={x + 24}
+          cy={y}
+          r={10}
+          fill={palette.featured}
+          opacity={0.2}
+        />
+        <circle cx={x + 24} cy={y} r={5} fill={palette.featured} />
+      </g>
+    );
+  }
+
   return (
     <path
       d={pathForStyle(style, { x, y }, { x: x + 48, y })}
@@ -231,57 +219,138 @@ function LegendSample({
   );
 }
 
+export function getFlowOutputLayout(label: string, finalStepX: number) {
+  // Keep the finished dish in the final block instead of reserving an entire
+  // extra column. Twelve 16px-wide glyphs still leave generous inner padding.
+  const lines = splitText(label, 12);
+  return {
+    width: finalStepX + 166,
+    centerX: finalStepX,
+    lines,
+  };
+}
+
 export function FlowDiagram({
   recipe,
   servings,
   theme,
   svgRef,
+  displayWidth,
+  includeMethod = true,
 }: {
   recipe: RecipeDocumentV1;
   servings: number;
   theme: Theme;
   svgRef: RefObject<SVGSVGElement | null>;
+  displayWidth?: number;
+  includeMethod?: boolean;
 }) {
+  const methodDisplayWidth = useDiagramDisplayWidth(svgRef, displayWidth);
   const graph = buildRecipeGraph(recipe);
   if (!graph) return null;
 
   const palette = PALETTES[theme];
-  const ingredientLineX = 400;
-  const firstStepX = 580;
-  const stepGap = 185;
-  const finalStepX = Math.max(
-    1410,
-    firstStepX + (graph.maxDepth - 1) * stepGap,
+  const ingredientLineX = 340;
+  const firstStepX = 470;
+  const stepGap = 180;
+  const finalStepX =
+    firstStepX + (graph.maxDepth - 1) * stepGap + (graph.maxDepth > 1 ? 40 : 0);
+  const outputLayout = getFlowOutputLayout(recipe.outputLabel, finalStepX);
+  const width = Math.max(900, outputLayout.width);
+  const headerLayout = getDiagramHeaderLayout(
+    recipe.title,
+    recipe.prepNotes,
+    width,
   );
-  const width = finalStepX + 330;
-  const headerHeight = 184;
-  const footerHeight = 140;
+  const headerHeight = headerLayout.height;
+  const footerHeight = 116;
   const diagramTop = headerHeight + 34;
   const scaledIngredients = new Map(
     graph.ingredientOrder.map((ingredient) => [
       ingredient.id,
       scaleIngredient(ingredient, recipe.baseServings, servings),
-      ]),
+    ]),
   );
-  const maximumIngredientLines = Math.max(
-    1,
-    ...[...scaledIngredients.values()].map((ingredient) => {
-      const label = [
-        formatIngredientQuantity(ingredient),
-        ingredient.name,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      return (
-        splitText(label, 27, 2).length +
-        (formatAlternateMeasurements(ingredient) ? 1 : 0) +
-        (ingredient.note?.trim() ? 1 : 0)
-      );
-    }),
+  const stepNumbers = new Map(
+    graph.stepOrder.map((step, index) => [step.id, index + 1]),
   );
-  const rowHeight = Math.max(78, maximumIngredientLines * 20 + 24);
+  const maximumIngredientHeight = Math.max(
+    0,
+    ...[...scaledIngredients.values()].map(
+      (ingredient) => getIngredientLabelLayout(ingredient, 24).height,
+    ),
+  );
+  const operationExtents = graph.stepOrder.map((step) => {
+    const range = graph.stepRanges.get(step.id)!;
+    const isFinal = step.id === recipe.finalStepId;
+    const titleLines = splitText(
+      `${stepNumbers.get(step.id)} · ${step.label}`,
+      isFinal ? 18 : 14,
+    );
+    const metadata = isFinal
+      ? [formatStepTiming(step), step.temperature].filter(Boolean).join(" • ")
+      : formatStepTiming(step);
+    const timingLines = metadata ? splitText(metadata, isFinal ? 18 : 14) : [];
+    const center = (range.start + range.end) / 2 + 0.5;
+    const depth = graph.stepDepths.get(step.id)!;
+    if (isFinal) {
+      const halfHeight =
+        Math.max(
+          154,
+          36 +
+            titleLines.length * 30.68 +
+            (timingLines.length ? 14 + timingLines.length * 20.06 : 0) +
+            40 +
+            outputLayout.lines.length * 18.88,
+        ) / 2;
+      return { center, depth, top: halfHeight, bottom: halfHeight };
+    }
+    const radius = getOperationNodeMetrics(step.inputs.length).boundaryRadius;
+    const labelHeight =
+      20 +
+      titleLines.length * 23.6 +
+      (timingLines.length ? 8 + timingLines.length * 17.7 : 0);
+    const labelExtent = radius + 14 + labelHeight;
+    return {
+      center,
+      depth,
+      top: step.inputs.length >= 4 ? labelExtent : radius,
+      bottom: step.inputs.length >= 4 ? radius : labelExtent,
+    };
+  });
+  // Only adjacent operations in the same column constrain row spacing. A tall
+  // label on a branch spanning many ingredients needn't inflate every row.
+  const operationRowHeights = operationExtents.flatMap((operation) => {
+    const next = operationExtents
+      .filter(
+        (candidate) =>
+          candidate.depth === operation.depth &&
+          candidate.center > operation.center,
+      )
+      .sort((a, b) => a.center - b.center)[0];
+    return [
+      (operation.top + 16) / operation.center,
+      (operation.bottom + 16) /
+        (graph.ingredientOrder.length - operation.center),
+      next
+        ? (operation.bottom + next.top + 16) / (next.center - operation.center)
+        : 0,
+    ];
+  });
+  const rowHeight = Math.max(
+    78,
+    maximumIngredientHeight + 24,
+    ...operationRowHeights,
+  );
   const diagramHeight = graph.ingredientOrder.length * rowHeight;
-  const height = diagramTop + diagramHeight + footerHeight;
+  const methodTop = diagramTop + diagramHeight + 70;
+  const methodLayout = getMethodKeyLayout(
+    graph.stepOrder,
+    width,
+    methodDisplayWidth,
+  );
+  const height =
+    methodTop + (includeMethod ? methodLayout.height : 0) + footerHeight;
   const ingredientYPositions = new Map(
     graph.ingredientOrder.map((ingredient, index) => [
       ingredient.id,
@@ -295,14 +364,11 @@ export function FlowDiagram({
     const depth = graph.stepDepths.get(step.id)!;
     const range = graph.stepRanges.get(step.id)!;
     const x =
-      graph.maxDepth === 1
+      step.id === recipe.finalStepId
         ? finalStepX
-        : firstStepX +
-          ((depth - 1) / (graph.maxDepth - 1)) * (finalStepX - firstStepX);
+        : firstStepX + (depth - 1) * stepGap;
     const y =
-      diagramTop +
-      ((range.start + range.end) / 2) * rowHeight +
-      rowHeight / 2;
+      diagramTop + ((range.start + range.end) / 2) * rowHeight + rowHeight / 2;
     stepPositions.set(step.id, { x, y });
   }
 
@@ -324,11 +390,7 @@ export function FlowDiagram({
     });
     inboundAnchors.set(
       step.id,
-      createInboundAnchors(
-        sources,
-        position,
-        step.id === recipe.finalStepId,
-      ),
+      createInboundAnchors(sources, position, step.id === recipe.finalStepId),
     );
   }
 
@@ -349,7 +411,12 @@ export function FlowDiagram({
         become {recipe.outputLabel}.
       </desc>
       <defs>
-        <pattern id={`grid-${theme}`} width="32" height="32" patternUnits="userSpaceOnUse">
+        <pattern
+          id={`grid-${theme}`}
+          width="32"
+          height="32"
+          patternUnits="userSpaceOnUse"
+        >
           <path
             d="M 32 0 L 0 0 0 32"
             fill="none"
@@ -361,6 +428,7 @@ export function FlowDiagram({
       </defs>
       <rect width={width} height={height} fill={palette.bg} />
       <rect
+        data-testid="flow-graph-bounds"
         x={30}
         y={diagramTop - 18}
         width={width - 60}
@@ -377,11 +445,13 @@ export function FlowDiagram({
         viewLabel="Flow recipe"
         width={width}
         palette={palette}
+        layout={headerLayout}
       />
 
       {graph.ingredientOrder.map((ingredient, index) => {
         const scaled = scaledIngredients.get(ingredient.id)!;
         const style = resolveIngredientStyle(scaled);
+        const featured = isIngredientFeatured(scaled);
         const consumer = graph.consumers.get(ingredient.id)!;
         const consumerStep = recipe.steps.find((step) => step.id === consumer)!;
         const target = stepPositions.get(consumer)!;
@@ -390,21 +460,37 @@ export function FlowDiagram({
           .get(consumerStep.id)!
           .get(ingredient.id)!;
         return (
-          <g key={ingredient.id}>
+          <g
+            key={ingredient.id}
+            data-ingredient-id={ingredient.id}
+            data-line-style={style}
+            data-featured={featured ? "true" : undefined}
+          >
             <IngredientLabel
               ingredient={scaled}
-              x={360}
+              x={300}
               y={y}
               palette={palette}
               anchor="end"
-              maxCharacters={27}
+              maxCharacters={24}
             />
             <circle
               cx={ingredientLineX}
               cy={y}
-              r={5}
-              fill={styleColor(style, palette)}
+              r={featured ? 11 : 5}
+              fill={featured ? palette.featured : styleColor(style, palette)}
+              opacity={featured ? 0.22 : 1}
             />
+            {featured ? (
+              <circle
+                cx={ingredientLineX}
+                cy={y}
+                r={5}
+                fill={styleColor(style, palette)}
+                stroke={palette.featured}
+                strokeWidth={2}
+              />
+            ) : null}
             <path
               d={createAnchoredPath(
                 style,
@@ -414,7 +500,7 @@ export function FlowDiagram({
               )}
               fill="none"
               stroke={styleColor(style, palette)}
-              strokeWidth={style === "featured" ? 3.2 : 3.5}
+              strokeWidth={3.5}
               strokeLinecap="round"
               strokeLinejoin="round"
             />
@@ -436,12 +522,50 @@ export function FlowDiagram({
             : undefined;
         const hasDenseInputs = step.inputs.length >= 4;
         const nodeMetrics = getOperationNodeMetrics(step.inputs.length);
+        const stepNumber = stepNumbers.get(step.id)!;
+        const timing = formatStepTiming(step);
+        const nodeTitle = `${stepNumber} · ${step.label}`;
+        const nodeFontSize = 20;
+        const nodeTitleLines = splitText(nodeTitle, 14);
+        const nodeTitleHeight = nodeTitleLines.length * nodeFontSize * 1.18;
+        const nodeTimingLines = timing ? splitText(timing, 14) : [];
+        const nodeTimingHeight = nodeTimingLines.length * 17.7;
+        const nodeLabelWidth = 174;
+        const nodeLabelHeight =
+          20 +
+          nodeTitleHeight +
+          (nodeTimingLines.length > 0 ? 8 + nodeTimingHeight : 0);
         const labelCenterY = hasDenseInputs
-          ? position.y - 47
-          : position.y + 48;
+          ? position.y - nodeMetrics.boundaryRadius - 14 - nodeLabelHeight / 2
+          : position.y + nodeMetrics.boundaryRadius + 14 + nodeLabelHeight / 2;
+        const nodeLabelTop = labelCenterY - nodeLabelHeight / 2;
+        const nodeTitleY = nodeLabelTop + 10 + nodeTitleHeight / 2;
+        const nodeTimingY =
+          nodeLabelTop + 10 + nodeTitleHeight + 8 + nodeTimingHeight / 2;
+        const finalTitleLines = splitText(nodeTitle, 18);
+        const finalTitleHeight = finalTitleLines.length * 30.68;
+        const finalMetadata = [timing, step.temperature]
+          .filter(Boolean)
+          .join(" • ");
+        const finalMetadataLines = finalMetadata
+          ? splitText(finalMetadata, 18)
+          : [];
+        const finalMetadataHeight = finalMetadataLines.length * 20.06;
+        const finalBoxHeight = Math.max(
+          154,
+          36 +
+            finalTitleHeight +
+            (finalMetadataLines.length > 0 ? 14 + finalMetadataHeight : 0) +
+            40 +
+            outputLayout.lines.length * 18.88,
+        );
+        const finalBoxTop = position.y - finalBoxHeight / 2;
+        const finalTitleY = finalBoxTop + 18 + finalTitleHeight / 2;
+        const finalMetadataY =
+          finalBoxTop + 18 + finalTitleHeight + 14 + finalMetadataHeight / 2;
 
         return (
-          <g key={step.id}>
+          <g key={step.id} data-testid="graph-operation">
             {target && inboundPoint ? (
               <path
                 d={createAnchoredPath(
@@ -463,10 +587,10 @@ export function FlowDiagram({
             {isFinal ? (
               <g>
                 <rect
-                  x={position.x - 104}
-                  y={position.y - 77}
-                  width={208}
-                  height={154}
+                  x={position.x - 112}
+                  y={finalBoxTop}
+                  width={224}
+                  height={finalBoxHeight}
                   rx={28}
                   fill={palette.accent}
                   stroke={palette.accentInk}
@@ -474,62 +598,64 @@ export function FlowDiagram({
                 />
                 <SvgText
                   x={position.x}
-                  y={position.y - 37}
+                  y={finalTitleY}
+                  maxCharacters={18}
                   fill={palette.accentInk}
                   fontSize={26}
                   fontWeight={850}
                   anchor="middle"
                 >
-                  {step.label}
+                  {`${stepNumber} · ${step.label}`}
                 </SvgText>
-                {step.temperature ? (
+                {finalMetadata ? (
                   <SvgText
                     x={position.x}
-                    y={position.y + 2}
+                    y={finalMetadataY}
                     maxCharacters={18}
                     fill={palette.accentInk}
-                    fontSize={17}
-                    fontWeight={750}
+                    fontSize={16}
+                    fontWeight={720}
                     anchor="middle"
                   >
-                    {step.temperature}
+                    {finalMetadata}
                   </SvgText>
                 ) : null}
-                {step.durationMinutes !== undefined ? (
+                <g data-testid="flow-output-label">
+                  <line
+                    x1={position.x - 88}
+                    x2={position.x + 88}
+                    y1={
+                      finalBoxTop +
+                      finalBoxHeight -
+                      30 -
+                      outputLayout.lines.length * 18.88
+                    }
+                    y2={
+                      finalBoxTop +
+                      finalBoxHeight -
+                      30 -
+                      outputLayout.lines.length * 18.88
+                    }
+                    stroke={palette.accentInk}
+                    opacity={0.2}
+                  />
                   <SvgText
-                    x={position.x}
-                    y={position.y + 40}
+                    x={outputLayout.centerX}
+                    y={
+                      finalBoxTop +
+                      finalBoxHeight -
+                      18 -
+                      (outputLayout.lines.length * 18.88) / 2
+                    }
+                    maxCharacters={12}
                     fill={palette.accentInk}
                     fontSize={16}
-                    fontWeight={700}
+                    fontWeight={820}
                     anchor="middle"
                   >
-                    {`${step.durationMinutes} min`}
+                    {recipe.outputLabel}
                   </SvgText>
-                ) : null}
-                <path
-                  d={`M ${position.x + 104} ${position.y} L ${width - 150} ${position.y}`}
-                  stroke={palette.accent}
-                  strokeWidth={5}
-                  strokeLinecap="round"
-                />
-                <circle
-                  cx={width - 150}
-                  cy={position.y}
-                  r={9}
-                  fill={palette.accent}
-                />
-                <SvgText
-                  x={width - 78}
-                  y={position.y}
-                  maxCharacters={12}
-                  fill={palette.ink}
-                  fontSize={20}
-                  fontWeight={820}
-                  anchor="middle"
-                >
-                  {recipe.outputLabel}
-                </SvgText>
+                </g>
               </g>
             ) : (
               <g>
@@ -548,31 +674,53 @@ export function FlowDiagram({
                   fill={palette.ink}
                 />
                 <rect
-                  x={position.x - (hasDenseInputs ? 46 : 61)}
-                  y={labelCenterY - (hasDenseInputs ? 16 : 20.5)}
-                  width={hasDenseInputs ? 92 : 122}
-                  height={hasDenseInputs ? 32 : 41}
-                  rx={hasDenseInputs ? 16 : 20.5}
+                  x={position.x - nodeLabelWidth / 2}
+                  y={nodeLabelTop}
+                  width={nodeLabelWidth}
+                  height={nodeLabelHeight}
+                  rx={18}
                   fill={palette.panel}
                   stroke={palette.grid}
                   strokeWidth={1.5}
                 />
                 <SvgText
                   x={position.x}
-                  y={labelCenterY}
-                  maxCharacters={12}
+                  y={nodeTitleY}
+                  maxCharacters={14}
                   fill={palette.ink}
-                  fontSize={hasDenseInputs ? 15 : 16}
+                  fontSize={nodeFontSize}
                   fontWeight={790}
                   anchor="middle"
                 >
-                  {step.label}
+                  {nodeTitle}
                 </SvgText>
+                {timing ? (
+                  <SvgText
+                    x={position.x}
+                    y={nodeTimingY}
+                    maxCharacters={14}
+                    fill={palette.muted}
+                    fontSize={15}
+                    fontWeight={700}
+                    anchor="middle"
+                  >
+                    {timing}
+                  </SvgText>
+                ) : null}
               </g>
             )}
           </g>
         );
       })}
+
+      {includeMethod ? (
+        <DiagramMethodKey
+          layout={methodLayout}
+          y={methodTop}
+          width={width}
+          palette={palette}
+        />
+      ) : null}
 
       <DiagramLegend
         styles={usedStyles}
@@ -591,7 +739,7 @@ export function FlowDiagram({
       />
       <SvgText
         x={width - 60}
-        y={height - 66}
+        y={height - (width < 1100 ? 28 : 66)}
         fill={palette.muted}
         fontSize={13}
         fontWeight={700}

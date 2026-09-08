@@ -1,8 +1,9 @@
 import type { RefObject } from "react";
+import { useDiagramDisplayWidth } from "./useDiagramDisplayWidth";
 import {
   buildRecipeGraph,
-  formatAlternateMeasurements,
-  formatIngredientQuantity,
+  formatStepTiming,
+  isIngredientFeatured,
   resolveIngredientStyle,
   scaleIngredient,
 } from "../../domain/recipe";
@@ -10,6 +11,10 @@ import type { RecipeDocumentV1, Theme } from "../../domain/types";
 import {
   DiagramHeader,
   DiagramLegend,
+  DiagramMethodKey,
+  getDiagramHeaderLayout,
+  getIngredientLabelLayout,
+  getMethodKeyLayout,
   getUsedStyles,
   IngredientLabel,
   PALETTES,
@@ -23,12 +28,17 @@ export function MatrixDiagram({
   servings,
   theme,
   svgRef,
+  displayWidth,
+  includeMethod = true,
 }: {
   recipe: RecipeDocumentV1;
   servings: number;
   theme: Theme;
   svgRef: RefObject<SVGSVGElement | null>;
+  displayWidth?: number;
+  includeMethod?: boolean;
 }) {
+  const methodDisplayWidth = useDiagramDisplayWidth(svgRef, displayWidth);
   const graph = buildRecipeGraph(recipe);
   if (!graph) return null;
 
@@ -40,37 +50,77 @@ export function MatrixDiagram({
     1500,
     ingredientWidth + rightMargin + graph.maxDepth * minimumOperationWidth,
   );
-  const headerHeight = 184;
-  const footerHeight = 116;
+  const footerHeight = 96;
+  const headerLayout = getDiagramHeaderLayout(
+    recipe.title,
+    recipe.prepNotes,
+    width,
+  );
+  const headerHeight = headerLayout.height;
   const tableTop = headerHeight + 30;
   const scaledIngredients = new Map(
     graph.ingredientOrder.map((ingredient) => [
       ingredient.id,
       scaleIngredient(ingredient, recipe.baseServings, servings),
-      ]),
+    ]),
   );
-  const maximumIngredientLines = Math.max(
-    1,
-    ...[...scaledIngredients.values()].map((ingredient) => {
-      const label = [
-        formatIngredientQuantity(ingredient),
-        ingredient.name,
-      ]
-        .filter(Boolean)
-        .join(" ");
-      return (
-        splitText(label, 31, 2).length +
-        (formatAlternateMeasurements(ingredient) ? 1 : 0) +
-        (ingredient.note?.trim() ? 1 : 0)
-      );
-    }),
-  );
-  const rowHeight = Math.max(82, maximumIngredientLines * 20 + 24);
-  const tableHeight = graph.ingredientOrder.length * rowHeight;
-  const height = tableTop + tableHeight + footerHeight;
   const operationWidth =
     (width - ingredientWidth - rightMargin) / graph.maxDepth;
+  const operationCharacters = Math.max(
+    10,
+    Math.floor((operationWidth - 34) / 12),
+  );
   const usedStyles = getUsedStyles([...scaledIngredients.values()]);
+  const stepNumbers = new Map(
+    graph.stepOrder.map((step, index) => [step.id, index + 1]),
+  );
+  const maximumIngredientHeight = Math.max(
+    0,
+    ...[...scaledIngredients.values()].map(
+      (ingredient) => getIngredientLabelLayout(ingredient, 31).height,
+    ),
+  );
+  const requiredRowHeight = Math.max(
+    0,
+    ...graph.stepOrder.map((step) => {
+      const range = graph.stepRanges.get(step.id)!;
+      const span = range.end - range.start + 1;
+      const titleLines = splitText(
+        `${stepNumbers.get(step.id)} · ${step.label}`,
+        operationCharacters,
+      );
+      const metadata = [formatStepTiming(step), step.temperature]
+        .filter(Boolean)
+        .join(" • ");
+      const metadataLines = metadata
+        ? splitText(metadata, operationCharacters + 2)
+        : [];
+      const outputLines =
+        step.id === recipe.finalStepId
+          ? splitText(recipe.outputLabel, operationCharacters)
+          : [];
+      const contentHeight =
+        titleLines.length * 25.96 +
+        (metadataLines.length > 0 ? 10 + metadataLines.length * 17.7 : 0) +
+        (outputLines.length > 0 ? 30 + outputLines.length * 14.16 : 0) +
+        30;
+      return (contentHeight + 14) / span;
+    }),
+  );
+  const rowHeight = Math.max(
+    82,
+    maximumIngredientHeight + 24,
+    requiredRowHeight,
+  );
+  const tableHeight = graph.ingredientOrder.length * rowHeight;
+  const methodTop = tableTop + tableHeight + 54;
+  const methodLayout = getMethodKeyLayout(
+    graph.stepOrder,
+    width,
+    methodDisplayWidth,
+  );
+  const height =
+    methodTop + (includeMethod ? methodLayout.height : 0) + footerHeight;
 
   return (
     <svg
@@ -96,6 +146,7 @@ export function MatrixDiagram({
         viewLabel="Matrix recipe"
         width={width}
         palette={palette}
+        layout={headerLayout}
       />
 
       <rect
@@ -113,11 +164,17 @@ export function MatrixDiagram({
         const y = tableTop + index * rowHeight;
         const scaled = scaledIngredients.get(ingredient.id)!;
         const style = resolveIngredientStyle(scaled);
+        const featured = isIngredientFeatured(scaled);
         const consumer = graph.consumers.get(ingredient.id)!;
         const depth = graph.stepDepths.get(consumer) ?? 1;
         const targetX = ingredientWidth + (depth - 1) * operationWidth;
         return (
-          <g key={ingredient.id}>
+          <g
+            key={ingredient.id}
+            data-ingredient-id={ingredient.id}
+            data-line-style={style}
+            data-featured={featured ? "true" : undefined}
+          >
             <rect
               x={55}
               y={y + 1}
@@ -150,6 +207,23 @@ export function MatrixDiagram({
               strokeDasharray={style === "dry" ? "12 8" : undefined}
               opacity={0.75}
             />
+            <circle
+              cx={ingredientWidth - 13}
+              cy={y + rowHeight / 2}
+              r={featured ? 10 : 4.5}
+              fill={featured ? palette.featured : styleColor(style, palette)}
+              opacity={featured ? 0.22 : 1}
+            />
+            {featured ? (
+              <circle
+                cx={ingredientWidth - 13}
+                cy={y + rowHeight / 2}
+                r={4.5}
+                fill={styleColor(style, palette)}
+                stroke={palette.featured}
+                strokeWidth={2}
+              />
+            ) : null}
             {index > 0 ? (
               <line
                 x1={55}
@@ -176,19 +250,33 @@ export function MatrixDiagram({
         const consumerDepth = consumer
           ? graph.stepDepths.get(consumer)
           : undefined;
-        const compact = operationHeight < 150;
-        const hasMetadata =
-          step.temperature !== undefined ||
-          step.durationMinutes !== undefined;
-        const titleY = compact
-          ? centerY - (hasMetadata ? 22 : 13)
-          : centerY - (step.details ? 17 : 0);
-        const outputY = compact
-          ? y + operationHeight - 13
-          : Math.min(y + operationHeight - 28, centerY + 98);
+        const timing = formatStepTiming(step);
+        const stepNumber = stepNumbers.get(step.id)!;
+        const title = `${stepNumber} · ${step.label}`;
+        const titleLines = splitText(title, operationCharacters);
+        const titleHeight = titleLines.length * 25.96;
+        const metadata = [timing, step.temperature].filter(Boolean).join(" • ");
+        const metadataLines = metadata
+          ? splitText(metadata, operationCharacters + 2)
+          : [];
+        const metadataHeight = metadataLines.length * 17.7;
+        const outputLines = isFinal
+          ? splitText(recipe.outputLabel, operationCharacters)
+          : [];
+        const outputHeight = outputLines.length * 14.16 + 18;
+        const contentHeight =
+          titleHeight +
+          (metadataLines.length > 0 ? 10 + metadataHeight : 0) +
+          (isFinal ? 12 + outputHeight : 0);
+        let contentY = centerY - contentHeight / 2;
+        const titleY = contentY + titleHeight / 2;
+        contentY += titleHeight;
+        const metadataY = contentY + 10 + metadataHeight / 2;
+        if (metadataLines.length > 0) contentY += 10 + metadataHeight;
+        const outputTop = contentY + 12;
 
         return (
-          <g key={step.id}>
+          <g key={step.id} data-testid="graph-operation">
             {consumerDepth ? (
               <line
                 x1={x + operationWidth - 10}
@@ -213,59 +301,43 @@ export function MatrixDiagram({
             <SvgText
               x={x + operationWidth / 2}
               y={titleY}
-              maxCharacters={14}
-              maxLines={compact ? 1 : 2}
+              maxCharacters={operationCharacters}
               fill={isFinal ? palette.accentInk : palette.ink}
               fontSize={isFinal ? 25 : 22}
               fontWeight={820}
               anchor="middle"
             >
-              {step.label}
+              {title}
             </SvgText>
-            {step.temperature ? (
+            {metadata ? (
               <SvgText
                 x={x + operationWidth / 2}
-                y={compact ? centerY + 2 : centerY + 20}
-                maxCharacters={18}
-                fill={isFinal ? palette.accentInk : palette.muted}
-                fontSize={15}
-                fontWeight={720}
-                anchor="middle"
-              >
-                {step.temperature}
-              </SvgText>
-            ) : null}
-            {step.durationMinutes !== undefined ? (
-              <SvgText
-                x={x + operationWidth / 2}
-                y={compact ? centerY + 19 : centerY + 46}
+                y={metadataY}
+                maxCharacters={operationCharacters + 2}
                 fill={isFinal ? palette.accentInk : palette.muted}
                 fontSize={14}
-                fontWeight={650}
+                fontWeight={700}
                 anchor="middle"
               >
-                {`${step.durationMinutes} min`}
+                {metadata}
               </SvgText>
             ) : null}
             {isFinal ? (
               <g>
-                {!compact ? (
-                  <rect
-                    x={x + operationWidth / 2 - 68}
-                    y={outputY - 18}
-                    width={136}
-                    height={36}
-                    rx={18}
-                    fill={palette.accentInk}
-                    opacity={0.9}
-                  />
-                ) : null}
+                <rect
+                  x={x + 17}
+                  y={outputTop}
+                  width={operationWidth - 34}
+                  height={outputHeight}
+                  rx={Math.min(18, outputHeight / 2)}
+                  fill={palette.accentInk}
+                  opacity={0.9}
+                />
                 <SvgText
                   x={x + operationWidth / 2}
-                  y={outputY}
-                  maxCharacters={15}
-                  maxLines={1}
-                  fill={compact ? palette.accentInk : palette.accent}
+                  y={outputTop + outputHeight / 2}
+                  maxCharacters={operationCharacters}
+                  fill={palette.accent}
                   fontSize={12}
                   fontWeight={760}
                   anchor="middle"
@@ -277,6 +349,15 @@ export function MatrixDiagram({
           </g>
         );
       })}
+
+      {includeMethod ? (
+        <DiagramMethodKey
+          layout={methodLayout}
+          y={methodTop}
+          width={width}
+          palette={palette}
+        />
+      ) : null}
 
       <DiagramLegend
         styles={usedStyles}
