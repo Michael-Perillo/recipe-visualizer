@@ -1,0 +1,263 @@
+/* Warm paper / ink / signal. Keep export-safe hex colors in diagram/shared.tsx aligned. */
+:root,
+.rv-theme {
+  --rv-paper: #fbfaf5;
+  --rv-surface: #f4f3ec;
+  --rv-canvas: #eae8df;
+  --rv-field: #fffefa;
+  --rv-ink: #171714;
+  --rv-muted: #64645b;
+  --rv-line: #d8d6cc;
+  --rv-accent: #a5f52f;
+  --rv-accent-ink: #13150f;
+  --rv-focus: #638d22;
+  --rv-success-bg: #e8efd9;
+  --rv-success-ink: #3c5919;
+  --rv-warning-bg: #fff0ce;
+  --rv-warning-ink: #805211;
+  --rv-danger: #ac352b;
+  --rv-radius-control: 10px;
+  --rv-radius-card: 16px;
+}
+
+.dark {
+  color-scheme: dark;
+  --rv-paper: #11120f;
+  --rv-surface: #1d1f1a;
+  --rv-canvas: #171813;
+  --rv-field: #242720;
+  --rv-ink: #f7f4ea;
+  --rv-muted: #a7a89d;
+  --rv-line: #34372f;
+  --rv-accent: #b8ff3d;
+  --rv-accent-ink: #11130d;
+  --rv-focus: #b8ff3d;
+  --rv-success-bg: #27321b;
+  --rv-success-ink: #b8d98c;
+  --rv-warning-bg: #352b18;
+  --rv-warning-ink: #f6cf82;
+  --rv-danger: #ff8a76;
+}
+
+.rv-theme {
+  color: var(--rv-ink);
+  background: var(--rv-paper);
+}
+.rv-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--rv-line);
+  border-radius: var(--rv-radius-control);
+  padding: 8px 12px;
+  background: var(--rv-field);
+  color: var(--rv-ink);
+  font-size: 12px;
+  line-height: 1.5;
+  font-weight: 800;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease;
+}
+.rv-button:hover:not(:disabled) {
+  background: var(--rv-surface);
+  border-color: var(--rv-muted);
+}
+.rv-button--primary {
+  background: var(--rv-accent);
+  border-color: transparent;
+  color: var(--rv-accent-ink);
+}
+.rv-button--primary:hover:not(:disabled) {
+  background: var(--rv-accent);
+  border-color: var(--rv-accent-ink);
+}
+.rv-button--ghost {
+  background: transparent;
+  border-color: transparent;
+}
+.rv-button--add {
+  background: transparent;
+  border-style: dashed;
+  color: var(--rv-muted);
+}
+.rv-button--danger {
+  color: var(--rv-danger);
+  background: transparent;
+}
+.rv-button:disabled {
+  opacity: 0.45;
+}
+
+.rv-field {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid var(--rv-line);
+  border-radius: var(--rv-radius-control);
+  padding: 9px 11px;
+  background: var(--rv-field);
+  color: var(--rv-ink);
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+  transition: border-color 140ms ease;
+}
+.rv-field::placeholder {
+  color: var(--rv-muted);
+  opacity: 0.75;
+}
+.rv-field:disabled {
+  opacity: 0.5;
+}
+textarea.rv-field {
+  resize: vertical;
+}
+.rv-label,
+.rv-eyebrow {
+  display: block;
+  color: var(--rv-muted);
+  font-size: 10px;
+  line-height: 1.5;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+.rv-label {
+  margin-bottom: 6px;
+}
+.rv-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.rv-section-icon {
+  display: grid;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  place-items: center;
+  border: 1px solid var(--rv-line);
+  border-radius: var(--rv-radius-control);
+  background: var(--rv-surface);
+  color: var(--rv-ink);
+}
+.rv-section-icon svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 1.8;
+}
+.rv-section-heading h2 {
+  margin: 1px 0 0;
+  font-size: 15px;
+  line-height: 1.4;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+}
+.rv-panel {
+  border: 1px solid var(--rv-line);
+  border-radius: var(--rv-radius-card);
+  background: var(--rv-paper);
+  padding: 16px;
+}
+.rv-panel label:has(> .rv-label) {
+  display: block;
+}
+.rv-editor-card {
+  border: 1px solid var(--rv-line);
+  border-radius: 12px;
+  background: var(--rv-surface);
+  padding: 12px;
+}
+.rv-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border-radius: 6px;
+  padding: 5px 7px;
+  background: var(--rv-surface);
+  color: var(--rv-muted);
+  font-size: 9px;
+  line-height: 1.4;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.rv-badge--success {
+  background: var(--rv-success-bg);
+  color: var(--rv-success-ink);
+}
+.rv-badge--warning {
+  background: var(--rv-warning-bg);
+  color: var(--rv-warning-ink);
+}
+.rv-segments {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--rv-line);
+  border-radius: 12px;
+  background: var(--rv-surface);
+}
+.rv-segments button {
+  flex: 1;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  color: var(--rv-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.rv-segments button:hover {
+  color: var(--rv-ink);
+}
+.rv-segments button[aria-pressed="true"] {
+  background: var(--rv-accent);
+  color: var(--rv-accent-ink);
+}
+.rv-control-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--rv-line);
+  border-radius: 12px;
+  background: var(--rv-paper);
+  padding: 3px;
+}
+.rv-workspace,
+.rv-header {
+  background: var(--rv-paper);
+  color: var(--rv-ink);
+}
+.rv-header,
+.rv-toolbar {
+  border-bottom: 1px solid var(--rv-line);
+}
+.rv-toolbar {
+  background: var(--rv-paper);
+}
+.rv-editor {
+  background: var(--rv-surface);
+  border-right-color: var(--rv-line);
+}
+.rv-canvas {
+  background-color: var(--rv-canvas);
+}
+
+:where(button, summary, select, input, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--rv-focus);
+  outline-offset: 3px;
+}
+.rv-field:focus-visible {
+  border-color: var(--rv-focus);
+  outline-offset: 1px;
+}
+/* Avoid mobile Safari's focus zoom; labels and controls stay comfortably tappable. */
+@media (max-width: 640px) {
+  .rv-field {
+    font-size: 16px;
+  }
+}
