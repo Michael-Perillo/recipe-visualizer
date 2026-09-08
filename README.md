@@ -177,15 +177,15 @@ aligned with those tokens: exports need literal colors to remain standalone.
 The Storybook suite renders every story, checks typing interactions, runs
 light/dark workspace accessibility and storage-isolation checks, and maintains
 desktop/mobile workspace snapshots. CI builds and tests Storybook separately;
-only the app's tested `dist/` is deployed to Pages. No Storybook hosting or
-third-party visual-testing account is required; telemetry is disabled.
+the app and Storybook deploy as independent Vercel projects. No third-party
+visual-testing account is required; Storybook telemetry is disabled.
 
 ### App commands
 
 Use Node.js 22 to match CI:
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
@@ -200,8 +200,8 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-`npm run test:e2e` creates the production Pages build and runs Playwright
-against `vite preview` at `/recipe-visualizer/`. The browser suite covers
+`npm run test:e2e` creates the production app build and runs Playwright
+against `vite preview` at `http://127.0.0.1:4173/`. The browser suite covers
 persistence, recovery, cross-tab conflicts, imports, scaling, SVG/PNG exports,
 responsive diagrams, accessibility, and desktop/mobile visual baselines.
 
@@ -209,18 +209,121 @@ Before an approved release, `npm run audit:prod` checks production dependency
 advisories with `npm audit --omit=dev`. Advisory changes are reviewed rather
 than used as a nondeterministic blocking CI gate.
 
-## GitHub Pages deployment
+## Independent deployments
 
-The workflow in `.github/workflows/pages.yml` pins third-party actions to full
-commit SHAs. Its test job installs dependencies, lints, typechecks, runs unit
-and component tests, creates the Pages build once, and tests that exact
-artifact. The same `dist` directory is uploaded and deployed without a second
-build.
+The app and Storybook use two Vercel projects connected to the same GitHub
+repository. Each has its own production URL, branch previews, deployment
+history, and rollback. Both production sites and previews are public.
+[Vercel Hobby](https://vercel.com/docs/plans/hobby) is free within its usage
+limits for personal, noncommercial projects and supplies `.vercel.app` domains;
+no purchased domain, paid add-on, or server is needed. GitHub Actions usage also
+counts toward the account's applicable free quotas.
 
-In GitHub, set **Settings → Pages → Source** to **GitHub Actions**. The
-production Vite base is `/recipe-visualizer/`. Pushes to `main` deploy after the
-test job passes; pull requests run the same verification without deploying.
-Dependabot is configured for npm and GitHub Actions updates.
+### Project settings
 
-A public site link is intentionally omitted until this checkout has a real
-repository origin and confirmed Pages deployment URL.
+Import the repository twice in Vercel, using these settings for each project:
+
+| Setting | Standalone app | Storybook |
+| --- | --- | --- |
+| Project name | `recipe-visualizer` | `recipe-visualizer-storybook` |
+| Root directory | Repository root | Repository root |
+| Framework preset | Vite | Other |
+| Node.js version | 22.x | 22.x |
+| Install command | `npm ci` | `npm ci` |
+| Build command | `npm run build` | `npm run build-storybook` |
+| Output directory | `dist` | `storybook-static` |
+| Production branch | `main` | `main` |
+| Required GitHub deployment checks | Quality, App | Quality, Storybook |
+
+Keep these build settings in the individual Vercel projects. A shared
+root-level `vercel.json` with a build command or output directory would affect
+both imports. Accept an available project/domain suffix if the requested name
+is already taken; record the actual production domains below after verification.
+Leave ignored-build/path filtering disabled so both sites build for every change.
+
+The app is served at `/` in development, CI, production, and previews. An
+explicit `VITE_BASE_PATH` can still override its base for another static host;
+GitHub Actions no longer changes the base implicitly. Leave this variable unset
+in both Vercel projects. Storybook always uses its own relative asset base.
+
+### CI and production gates
+
+The verification-only workflow in `.github/workflows/ci.yml` runs on pull
+requests, pushes to `main`, and manual dispatch. Its three independent jobs use
+Node.js 22, `npm ci`, and actions pinned to full commit SHAs:
+
+- **Quality:** lint, typecheck, and unit/component tests.
+- **App:** build `dist` once, then run browser, accessibility, and visual tests
+  against that build.
+- **Storybook:** build `storybook-static` once, then run story, interaction,
+  accessibility, storage-isolation, and visual tests against that build.
+
+In each project's **Settings → Deployment Checks → Add Checks**, select
+**GitHub** as the provider and require the checks listed in the settings table.
+Keep automatic production domain assignment enabled. These gates are configured
+in Vercel, not by the workflow itself: **Quality + App** controls app production,
+while **Quality + Storybook** controls Storybook production. Keep the job names
+stable, or update the selected checks when renaming them. See
+[Vercel Deployment Checks](https://vercel.com/docs/deployment-checks).
+
+A push to `main` builds both projects, but a production domain updates only
+after its required checks pass. A failed site-specific check leaves that site's
+previous production version in place without blocking the other site's gate.
+Feature-branch pushes create separate preview URLs; opening a pull request also
+runs CI. Previews can be inspected before checks pass. Vercel rebuilds the same
+commit separately from CI; the deployed files are not the exact CI-tested
+artifacts. No deployment credentials are needed in GitHub Actions.
+
+Disable **Vercel Authentication** under **Settings → Deployment Protection** in
+both projects so production and preview links open without login. Preserve
+Vercel's default fork-deployment approval behavior. Dependabot continues to
+cover npm dependencies and GitHub Actions.
+
+### Initial setup and verification
+
+1. Connect the checkout to the intended GitHub repository, preserving its source
+   visibility. Commit the complete app and Storybook source, including this
+   workflow, and get all three checks passing on `main` before the first import.
+2. Import the repository twice with the project settings above, configure the
+   GitHub deployment checks, and make both projects publicly accessible.
+3. Use a subsequent deployment to confirm the gates are active: the production
+   domain should stay on its previous version while required checks are pending
+   or failing. Before sharing the sites, run a failure drill on a temporary
+   validation branch: select it as production in both projects, add a failing
+   app-only browser assertion there, and dispatch CI on that branch. Confirm
+   app promotion is blocked while Storybook remains eligible. Restore both
+   production branches to `main` and redeploy the passing commit afterward.
+   Never merge the intentional failure into `main`.
+4. Open a pull request and verify that it receives distinct app and Storybook
+   preview URLs while both production domains remain unchanged.
+5. In a signed-out browser, verify both production and preview URLs. Check app
+   editing, reload persistence, SVG/PNG exports, fonts, and icons. Check the
+   Storybook sidebar, direct story/docs links and refresh, themes, and mobile
+   layouts. Confirm a failure in one project's checks does not prevent the
+   other project from promoting when its own checks pass.
+6. Record the verified production URLs here. Disable any previous GitHub Pages
+   site only after the new URLs work; the old publishing workflow has been removed.
+
+| Deployment | Verified production URL |
+| --- | --- |
+| Standalone app | Pending GitHub/Vercel setup and signed-out verification |
+| Storybook | Pending GitHub/Vercel setup and signed-out verification |
+
+Recipe libraries are scoped to the browser origin. Production and preview URLs
+have separate local libraries, and Storybook uses only in-memory fixtures. Use
+JSON export/import to transfer recipes between origins.
+
+### Rollback and recovery
+
+Open the affected Vercel project's **Deployments** page and use **Instant
+Rollback** to restore its previous successful production deployment. Hobby
+supports rolling back to the immediately preceding production deployment. The
+other project is unaffected. Verify the stable production URL after rollback.
+[Vercel rollback documentation](https://vercel.com/docs/instant-rollback).
+
+Rollback disables automatic production domain assignment. Revert or fix the
+source change in GitHub, wait for the required checks to pass, and use **Undo
+Rollback** to promote the corrected deployment. This also restores automatic
+production assignment for future `main` updates. No recipe data is migrated or deleted by
+a hosting rollback. Keep both projects on Hobby and review usage in the provider
+dashboards rather than enabling paid services to bypass quotas.

@@ -5,7 +5,7 @@ import { DEFAULT_RECIPE } from "../../src/data/defaultRecipe";
 import { DEEP_RECIPE, MINIMAL_RECIPE, persistedLibraryFor } from "./recipes";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/recipe-visualizer/");
+  await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 });
@@ -444,7 +444,7 @@ test("synchronizes clean tabs and protects conflicting pending edits", async ({
 
   await expect(page.getByText("Saved locally")).toBeVisible();
   const secondPage = await context.newPage();
-  await secondPage.goto("/recipe-visualizer/");
+  await secondPage.goto("/");
   await expect(secondPage.getByLabel("Recipe title")).toHaveValue(
     "Espresso Brownies",
   );
@@ -491,7 +491,7 @@ test("has no serious accessibility violations", async ({ page }) => {
   ).toEqual([]);
 });
 
-test("loads brand icons through the Pages base path", async ({
+test("loads brand icons from the deployment root", async ({
   page,
 }, testInfo) => {
   test.skip(
@@ -501,7 +501,7 @@ test("loads brand icons through the Pages base path", async ({
 
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute(
     "href",
-    "/recipe-visualizer/apple-touch-icon.png",
+    "/apple-touch-icon.png",
   );
   for (const asset of [
     "favicon.ico",

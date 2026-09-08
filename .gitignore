@@ -1,4 +1,5 @@
 node_modules/
+.vercel/
 dist/
 storybook-static/
 storybook-test-results/

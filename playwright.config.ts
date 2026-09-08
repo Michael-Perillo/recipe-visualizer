@@ -16,7 +16,7 @@ export default defineConfig({
     },
   },
   use: {
-    baseURL: "http://127.0.0.1:4173/recipe-visualizer/",
+    baseURL: "http://127.0.0.1:4173/",
     trace: "on-first-retry",
     screenshot: "only-on-failure",
     colorScheme: "light",
@@ -37,8 +37,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run preview:pages -- --host 127.0.0.1 --port 4173",
-    url: "http://127.0.0.1:4173/recipe-visualizer/",
-    reuseExistingServer: !process.env.CI,
+    command: "npm run preview -- --host 127.0.0.1 --port 4173 --strictPort",
+    url: "http://127.0.0.1:4173/",
+    reuseExistingServer: false,
   },
 });

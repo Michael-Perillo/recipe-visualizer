@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { DEEP_RECIPE, MINIMAL_RECIPE, persistedLibraryFor } from "./recipes";
 
 test.beforeEach(async ({ page }) => {
-  await page.goto("/recipe-visualizer/");
+  await page.goto("/");
   await page.evaluate(() => localStorage.clear());
   await page.reload();
 });
