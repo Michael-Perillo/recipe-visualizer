@@ -8,7 +8,8 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   outputDir: "storybook-test-results",
-  snapshotPathTemplate: "{testDir}/__screenshots__/{testFilePath}/{arg}{ext}",
+  snapshotPathTemplate:
+    "{testDir}/__screenshots__/{platform}/{testFilePath}/{arg}{ext}",
   expect: {
     toHaveScreenshot: { animations: "disabled", maxDiffPixelRatio: 0.02 },
   },

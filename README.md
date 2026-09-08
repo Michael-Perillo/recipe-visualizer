@@ -180,6 +180,16 @@ desktop/mobile workspace snapshots. CI builds and tests Storybook separately;
 the app and Storybook deploy as independent Vercel projects. No third-party
 visual-testing account is required; Storybook telemetry is disabled.
 
+Storybook screenshots are stored by operating system under
+`tests/storybook/__screenshots__/{platform}/` because browser font rendering
+differs between macOS and Linux. Update local baselines with
+`npm run test:storybook -- --update-snapshots` only after reviewing a visual
+change. For Linux, manually run **Generate Storybook snapshots** in GitHub
+Actions, download its `storybook-linux-snapshots` artifact into
+`tests/storybook/__screenshots__/linux/`, review the images, and commit them.
+That workflow never commits files or satisfies the **Storybook** production
+gate; the normal CI run verifies the committed baselines.
+
 ### App commands
 
 Use Node.js 22 to match CI:
