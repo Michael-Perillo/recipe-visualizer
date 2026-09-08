@@ -6,9 +6,10 @@ import type {
   RecipeGraph,
   RecipeStep,
   ResolvedIngredientStyle,
+  StepTiming,
   ValidationIssue,
 } from "./types";
-import { RECIPE_LIMITS } from "./limits";
+import { RECIPE_LIMITS, TIMING_UNIT_MINUTES } from "./limits";
 
 const FRACTION_CANDIDATES = [
   [1, 8],
@@ -117,22 +118,47 @@ export function formatAlternateMeasurements(ingredient: Ingredient): string {
     .join(" / ");
 }
 
+function formatTimingNumber(value: number): string {
+  return Number(value.toFixed(2)).toString();
+}
+
+export function formatTiming(timing: StepTiming): string {
+  const amount =
+    timing.maximum !== undefined && timing.maximum !== timing.minimum
+      ? `${formatTimingNumber(timing.minimum)}–${formatTimingNumber(timing.maximum)}`
+      : formatTimingNumber(timing.minimum);
+  const unit =
+    timing.unit === "seconds"
+      ? "sec"
+      : timing.unit === "minutes"
+        ? "min"
+        : "hr";
+  return `${amount} ${unit}`;
+}
+
+export function formatStepTiming(step: RecipeStep): string {
+  if (step.timing) return formatTiming(step.timing);
+  if (step.durationMinutes !== undefined) {
+    return `${formatTimingNumber(step.durationMinutes)} min`;
+  }
+  return "";
+}
+
 export function resolveIngredientStyle(
   ingredient: Ingredient,
 ): ResolvedIngredientStyle {
-  if (ingredient.visualStyle !== "auto") return ingredient.visualStyle;
+  if (
+    ingredient.visualStyle !== "auto" &&
+    ingredient.visualStyle !== "featured"
+  ) {
+    return ingredient.visualStyle;
+  }
 
   const value = `${ingredient.name} ${ingredient.note ?? ""}`.toLowerCase();
   const unit = ingredient.quantity.unit?.toLowerCase().trim() ?? "";
 
   if (
-    /(cocoa|coffee|espresso|chocolate|matcha|saffron|spice blend)/.test(value)
-  ) {
-    return "featured";
-  }
-
-  if (
-    /(flour|sugar|salt|baking soda|baking powder|yeast|oat|rice|starch|crumb)/.test(
+    /(flour|sugar|salt|baking soda|baking powder|yeast|oat|rice|starch|crumb|cocoa|matcha|saffron|spice blend)/.test(
       value,
     )
   ) {
@@ -140,7 +166,7 @@ export function resolveIngredientStyle(
   }
 
   if (
-    /(water|milk|cream|oil|juice|extract|egg|butter|broth|stock|vinegar|wine|syrup)/.test(
+    /(water|milk|cream|oil|juice|extract|egg|butter|broth|stock|vinegar|wine|syrup|coffee|espresso)/.test(
       value,
     ) ||
     /^(ml|l|fl oz|fluid ounce|fluid ounces)$/.test(unit)
@@ -149,6 +175,10 @@ export function resolveIngredientStyle(
   }
 
   return "neutral";
+}
+
+export function isIngredientFeatured(ingredient: Ingredient): boolean {
+  return ingredient.featured === true || ingredient.visualStyle === "featured";
 }
 
 export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
@@ -335,6 +365,44 @@ export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
         path: step.id,
       });
     }
+    if ((step.tool?.length ?? 0) > RECIPE_LIMITS.shortText) {
+      issues.push({
+        code: "step-tool-length",
+        message: `Operation tools must be ${RECIPE_LIMITS.shortText} characters or fewer.`,
+        path: step.id,
+      });
+    }
+    if ((step.setting?.length ?? 0) > RECIPE_LIMITS.shortText) {
+      issues.push({
+        code: "step-setting-length",
+        message: `Operation settings must be ${RECIPE_LIMITS.shortText} characters or fewer.`,
+        path: step.id,
+      });
+    }
+    if ((step.cue?.length ?? 0) > RECIPE_LIMITS.longText) {
+      issues.push({
+        code: "step-cue-length",
+        message: `Operation cues must be ${RECIPE_LIMITS.longText} characters or fewer.`,
+        path: step.id,
+      });
+    }
+    if (step.timing) {
+      const { minimum, maximum, unit } = step.timing;
+      const largest = maximum ?? minimum;
+      if (
+        !Number.isFinite(minimum) ||
+        minimum <= 0 ||
+        (maximum !== undefined &&
+          (!Number.isFinite(maximum) || maximum <= 0 || maximum < minimum)) ||
+        largest * TIMING_UNIT_MINUTES[unit] > RECIPE_LIMITS.durationMinutes
+      ) {
+        issues.push({
+          code: "step-timing-range",
+          message: `${step.label || "An operation"} needs a valid positive timing range of no more than ${RECIPE_LIMITS.durationMinutes} minutes.`,
+          path: step.id,
+        });
+      }
+    }
     if (step.inputs.length === 0) {
       issues.push({
         code: "step-input",
@@ -350,6 +418,7 @@ export function validateRecipe(recipe: RecipeDocumentV1): ValidationIssue[] {
       });
     }
     if (
+      !step.timing &&
       step.durationMinutes !== undefined &&
       (!Number.isFinite(step.durationMinutes) ||
         step.durationMinutes < 0 ||
@@ -561,7 +630,12 @@ export function normalizeRecipeStepOrder(
   if (!graph) return recipe;
   return {
     ...recipe,
-    steps: graph.stepOrder,
+    steps: graph.stepOrder.map((step) => {
+      if (!step.timing) return step;
+      const canonical = { ...step, timing: { ...step.timing } };
+      delete canonical.durationMinutes;
+      return canonical;
+    }),
   };
 }
 
@@ -591,6 +665,7 @@ export function cloneRecipe(
     })),
     steps: recipe.steps.map((step) => ({
       ...step,
+      timing: step.timing ? { ...step.timing } : undefined,
       id: idMap.get(step.id)!,
       inputs: step.inputs.map((input) => ({
         ...input,

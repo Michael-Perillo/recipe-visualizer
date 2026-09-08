@@ -16,6 +16,12 @@ export const RECIPE_LIMITS = {
   durationMinutes: 10_080,
 } as const;
 
+export const TIMING_UNIT_MINUTES = {
+  seconds: 1 / 60,
+  minutes: 1,
+  hours: 60,
+} as const;
+
 export function normalizeBoundedNumber(
   value: number | string,
   minimum: number,
@@ -43,6 +49,14 @@ export function normalizeDuration(
   value: number | string,
 ): number | undefined {
   return normalizeBoundedNumber(value, 0, RECIPE_LIMITS.durationMinutes);
+}
+
+export function normalizeTimingValue(
+  value: number | string,
+  unit: keyof typeof TIMING_UNIT_MINUTES,
+): number | undefined {
+  const maximum = RECIPE_LIMITS.durationMinutes / TIMING_UNIT_MINUTES[unit];
+  return normalizeBoundedNumber(value, 0.01, maximum);
 }
 
 export function normalizeServings(

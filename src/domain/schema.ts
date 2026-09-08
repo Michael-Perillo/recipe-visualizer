@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { RECIPE_LIMITS } from "./limits";
+import { RECIPE_LIMITS, TIMING_UNIT_MINUTES } from "./limits";
 
 const nodeRefSchema = z.object({
   kind: z.enum(["ingredient", "step"]),
@@ -33,21 +33,65 @@ const ingredientSchema = z.object({
     .optional(),
   note: z.string().max(RECIPE_LIMITS.longText).optional(),
   visualStyle: z.enum(["auto", "dry", "liquid", "featured", "neutral"]),
+  featured: z.boolean().optional(),
 });
 
-const recipeStepSchema = z.object({
-  id: z.string().min(1).max(RECIPE_LIMITS.title),
-  label: z.string().max(RECIPE_LIMITS.stepLabel),
-  details: z.string().max(RECIPE_LIMITS.longText).optional(),
-  inputs: z.array(nodeRefSchema).max(RECIPE_LIMITS.ingredients),
-  durationMinutes: z
-    .number()
-    .finite()
-    .nonnegative()
-    .max(RECIPE_LIMITS.durationMinutes)
-    .optional(),
-  temperature: z.string().max(RECIPE_LIMITS.shortText).optional(),
-});
+const stepTimingSchema = z
+  .object({
+    minimum: z.number().finite().positive(),
+    maximum: z.number().finite().positive().optional(),
+    unit: z.enum(["seconds", "minutes", "hours"]),
+  })
+  .superRefine((timing, context) => {
+    if (timing.maximum !== undefined && timing.maximum < timing.minimum) {
+      context.addIssue({
+        code: "custom",
+        message: "Maximum timing must be greater than or equal to minimum timing.",
+        path: ["maximum"],
+      });
+    }
+    const largest = timing.maximum ?? timing.minimum;
+    if (largest * TIMING_UNIT_MINUTES[timing.unit] > RECIPE_LIMITS.durationMinutes) {
+      context.addIssue({
+        code: "custom",
+        message: `Timing cannot exceed ${RECIPE_LIMITS.durationMinutes} minutes.`,
+        path: ["maximum"],
+      });
+    }
+  });
+
+const recipeStepSchema = z.preprocess(
+  (value) => {
+    if (
+      !value ||
+      typeof value !== "object" ||
+      !("timing" in value) ||
+      value.timing === undefined
+    ) {
+      return value;
+    }
+    const canonical = { ...value } as Record<string, unknown>;
+    delete canonical.durationMinutes;
+    return canonical;
+  },
+  z.object({
+    id: z.string().min(1).max(RECIPE_LIMITS.title),
+    label: z.string().max(RECIPE_LIMITS.stepLabel),
+    details: z.string().max(RECIPE_LIMITS.longText).optional(),
+    timing: stepTimingSchema.optional(),
+    tool: z.string().max(RECIPE_LIMITS.shortText).optional(),
+    setting: z.string().max(RECIPE_LIMITS.shortText).optional(),
+    cue: z.string().max(RECIPE_LIMITS.longText).optional(),
+    inputs: z.array(nodeRefSchema).max(RECIPE_LIMITS.ingredients),
+    durationMinutes: z
+      .number()
+      .finite()
+      .nonnegative()
+      .max(RECIPE_LIMITS.durationMinutes)
+      .optional(),
+    temperature: z.string().max(RECIPE_LIMITS.shortText).optional(),
+  }),
+);
 
 export const recipeDocumentSchema = z.object({
   schemaVersion: z.literal(1),

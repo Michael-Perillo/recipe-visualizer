@@ -15,6 +15,14 @@ export type Measurement = {
   unit: string;
 };
 
+export type TimingUnit = "seconds" | "minutes" | "hours";
+
+export type StepTiming = {
+  minimum: number;
+  maximum?: number;
+  unit: TimingUnit;
+};
+
 export type IngredientStyle =
   | "auto"
   | "dry"
@@ -31,12 +39,17 @@ export type Ingredient = {
   alternateMeasurements?: Measurement[];
   note?: string;
   visualStyle: IngredientStyle;
+  featured?: boolean;
 };
 
 export type RecipeStep = {
   id: string;
   label: string;
   details?: string;
+  timing?: StepTiming;
+  tool?: string;
+  setting?: string;
+  cue?: string;
   inputs: NodeRef[];
   durationMinutes?: number;
   temperature?: string;
@@ -94,6 +107,16 @@ export const INGREDIENT_STYLE_LABELS: Record<IngredientStyle, string> = {
   auto: "Auto",
   dry: "Dry / arrow",
   liquid: "Liquid / wave",
-  featured: "Featured / coil",
+  featured: "Featured (legacy)",
+  neutral: "Neutral / line",
+};
+
+export const INGREDIENT_LINE_STYLE_LABELS: Record<
+  Exclude<IngredientStyle, "featured">,
+  string
+> = {
+  auto: "Auto",
+  dry: "Dry / arrow",
+  liquid: "Liquid / wave",
   neutral: "Neutral / line",
 };

@@ -5,6 +5,9 @@ import {
   formatAlternateMeasurements,
   formatAmount,
   formatIngredientQuantity,
+  formatStepTiming,
+  formatTiming,
+  isIngredientFeatured,
   normalizeRecipeStepOrder,
   resolveIngredientStyle,
   scaleIngredient,
@@ -56,6 +59,27 @@ describe("quantity formatting and scaling", () => {
   });
 });
 
+describe("operation timing", () => {
+  it("formats exact and ranged timings in every supported unit", () => {
+    expect(formatTiming({ minimum: 30, unit: "seconds" })).toBe("30 sec");
+    expect(
+      formatTiming({ minimum: 1, maximum: 2, unit: "minutes" }),
+    ).toBe("1–2 min");
+    expect(formatTiming({ minimum: 1.5, unit: "hours" })).toBe("1.5 hr");
+  });
+
+  it("prefers structured timing and falls back to legacy minutes", () => {
+    const step = DEFAULT_RECIPE.steps[0];
+    expect(formatStepTiming(step)).toBe("30 sec");
+    expect(
+      formatStepTiming({ ...step, timing: undefined, durationMinutes: 12 }),
+    ).toBe("12 min");
+    expect(
+      formatStepTiming({ ...step, durationMinutes: 99 }),
+    ).toBe("30 sec");
+  });
+});
+
 describe("ingredient style inference", () => {
   const ingredient = (
     name: string,
@@ -71,9 +95,16 @@ describe("ingredient style inference", () => {
   it("infers semantic line styles and honors overrides", () => {
     expect(resolveIngredientStyle(ingredient("bread flour"))).toBe("dry");
     expect(resolveIngredientStyle(ingredient("whole milk"))).toBe("liquid");
-    expect(resolveIngredientStyle(ingredient("cocoa powder"))).toBe("featured");
+    expect(resolveIngredientStyle(ingredient("cocoa powder"))).toBe("dry");
+    expect(resolveIngredientStyle(ingredient("espresso"))).toBe("liquid");
     expect(resolveIngredientStyle(ingredient("mushrooms"))).toBe("neutral");
     expect(resolveIngredientStyle(ingredient("milk", "", "dry"))).toBe("dry");
+    const legacyFeatured = ingredient("cocoa powder", "", "featured");
+    expect(resolveIngredientStyle(legacyFeatured)).toBe("dry");
+    expect(isIngredientFeatured(legacyFeatured)).toBe(true);
+    expect(
+      isIngredientFeatured({ ...ingredient("cocoa powder"), featured: true }),
+    ).toBe(true);
   });
 });
 
@@ -82,17 +113,32 @@ describe("recipe graph validation and layout", () => {
     expect(validateRecipe(DEFAULT_RECIPE)).toEqual([]);
     const graph = buildRecipeGraph(DEFAULT_RECIPE);
     expect(graph).not.toBeNull();
-    expect(graph?.maxDepth).toBe(5);
+    expect(graph?.maxDepth).toBe(6);
     expect(graph?.ingredientOrder.map((ingredient) => ingredient.id)).toEqual([
-      "ingredient-butter",
-      "ingredient-vanilla",
-      "ingredient-espresso",
-      "ingredient-sugar",
-      "ingredient-eggs",
       "ingredient-flour",
       "ingredient-cocoa",
       "ingredient-soda",
       "ingredient-salt",
+      "ingredient-butter",
+      "ingredient-sugar",
+      "ingredient-espresso",
+      "ingredient-eggs",
+      "ingredient-vanilla",
+    ]);
+    expect(graph?.stepOrder.map((step) => step.id)).toEqual([
+      "step-whisk-dry",
+      "step-melt",
+      "step-whisk-sugar",
+      "step-whisk-eggs",
+      "step-fold",
+      "step-bake",
+      "step-cool",
+    ]);
+    expect(
+      DEFAULT_RECIPE.steps.find((step) => step.id === "step-fold")?.inputs,
+    ).toEqual([
+      { kind: "step", id: "step-whisk-dry" },
+      { kind: "step", id: "step-whisk-eggs" },
     ]);
     expect(graph?.stepRanges.get("step-bake")).toEqual({ start: 0, end: 8 });
   });
@@ -158,7 +204,13 @@ describe("recipe graph validation and layout", () => {
           : ingredient,
       ),
       steps: DEFAULT_RECIPE.steps.map((step, index) =>
-        index === 0 ? { ...step, durationMinutes: Number.POSITIVE_INFINITY } : step,
+        index === 0
+          ? {
+              ...step,
+              timing: undefined,
+              durationMinutes: Number.POSITIVE_INFINITY,
+            }
+          : step,
       ),
     };
 
@@ -178,5 +230,21 @@ describe("recipe graph validation and layout", () => {
     expect(normalizeRecipeStepOrder(reversed).steps.map((step) => step.id)).toEqual(
       DEFAULT_RECIPE.steps.map((step) => step.id),
     );
+  });
+
+  it("canonicalizes structured timing over legacy minutes", () => {
+    const recipe: RecipeDocumentV1 = {
+      ...DEFAULT_RECIPE,
+      steps: DEFAULT_RECIPE.steps.map((step, index) =>
+        index === 0 ? { ...step, durationMinutes: 90 } : step,
+      ),
+    };
+
+    const normalized = normalizeRecipeStepOrder(recipe);
+    expect(normalized.steps[0].timing).toEqual({
+      minimum: 30,
+      unit: "seconds",
+    });
+    expect(normalized.steps[0].durationMinutes).toBeUndefined();
   });
 });

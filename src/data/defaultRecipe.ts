@@ -7,8 +7,8 @@ export const DEFAULT_RECIPE: RecipeDocumentV1 = {
   baseServings: 4,
   outputLabel: "fudgy brownies",
   prepNotes: [
-    "Butter and flour an 8×8-in pan",
-    "Preheat oven to 350°F (170°C)",
+    "Butter and flour an 8×8-in pan; line the bottom with parchment",
+    "Preheat oven to 350°F (170°C) with a rack in the center",
   ],
   ingredients: [
     {
@@ -40,7 +40,8 @@ export const DEFAULT_RECIPE: RecipeDocumentV1 = {
         { value: 4, unit: "Tbsp" },
         { value: 60, unit: "mL" },
       ],
-      visualStyle: "featured",
+      visualStyle: "liquid",
+      featured: true,
     },
     {
       id: "ingredient-eggs",
@@ -61,7 +62,8 @@ export const DEFAULT_RECIPE: RecipeDocumentV1 = {
       name: "cocoa powder",
       quantity: { value: 1 / 3, unit: "cup", scalable: true },
       alternateMeasurements: [{ value: 80, unit: "g" }],
-      visualStyle: "featured",
+      visualStyle: "dry",
+      featured: true,
     },
     {
       id: "ingredient-soda",
@@ -80,39 +82,15 @@ export const DEFAULT_RECIPE: RecipeDocumentV1 = {
   ],
   steps: [
     {
-      id: "step-melt",
-      label: "Melt",
-      details: "Melt gently until glossy",
+      id: "step-whisk-dry",
+      label: "Whisk dry",
+      details:
+        "Whisk the flour, cocoa, baking soda, and salt together in a medium bowl.",
+      timing: { minimum: 30, unit: "seconds" },
+      tool: "Balloon whisk",
+      setting: "Brisk",
+      cue: "Color is even with no pale flour or cocoa lumps.",
       inputs: [
-        { kind: "ingredient", id: "ingredient-butter" },
-        { kind: "ingredient", id: "ingredient-vanilla" },
-        { kind: "ingredient", id: "ingredient-espresso" },
-      ],
-    },
-    {
-      id: "step-mix-sugar",
-      label: "Mix",
-      details: "Whisk until the sugar dissolves",
-      inputs: [
-        { kind: "step", id: "step-melt" },
-        { kind: "ingredient", id: "ingredient-sugar" },
-      ],
-    },
-    {
-      id: "step-mix-eggs",
-      label: "Mix",
-      details: "Beat in the eggs",
-      inputs: [
-        { kind: "step", id: "step-mix-sugar" },
-        { kind: "ingredient", id: "ingredient-eggs" },
-      ],
-    },
-    {
-      id: "step-fold",
-      label: "Fold in",
-      details: "Stop when no dry streaks remain",
-      inputs: [
-        { kind: "step", id: "step-mix-eggs" },
         { kind: "ingredient", id: "ingredient-flour" },
         { kind: "ingredient", id: "ingredient-cocoa" },
         { kind: "ingredient", id: "ingredient-soda" },
@@ -120,13 +98,82 @@ export const DEFAULT_RECIPE: RecipeDocumentV1 = {
       ],
     },
     {
+      id: "step-melt",
+      label: "Melt butter",
+      details:
+        "Melt the butter over low heat, swirling the pan occasionally; remove it from the heat as soon as the last pieces disappear.",
+      timing: { minimum: 2, maximum: 3, unit: "minutes" },
+      tool: "Small saucepan",
+      setting: "Low heat",
+      cue: "Fully liquid and glossy, with no sizzling or browning.",
+      inputs: [{ kind: "ingredient", id: "ingredient-butter" }],
+    },
+    {
+      id: "step-whisk-sugar",
+      label: "Whisk sugar",
+      details:
+        "Whisk the sugar and espresso into the warm butter, scraping the corners of the pan.",
+      timing: { minimum: 1, maximum: 2, unit: "minutes" },
+      tool: "Balloon whisk",
+      setting: "Brisk",
+      cue: "Mixture is glossy and the sugar feels less gritty.",
+      inputs: [
+        { kind: "step", id: "step-melt" },
+        { kind: "ingredient", id: "ingredient-sugar" },
+        { kind: "ingredient", id: "ingredient-espresso" },
+      ],
+    },
+    {
+      id: "step-whisk-eggs",
+      label: "Whisk in eggs",
+      details:
+        "Whisk in the eggs one at a time, then whisk in the vanilla until the mixture thickens.",
+      timing: { minimum: 1, maximum: 2, unit: "minutes" },
+      tool: "Balloon whisk",
+      setting: "Vigorous",
+      cue: "Batter is shiny and falls from the whisk in thick ribbons.",
+      inputs: [
+        { kind: "step", id: "step-whisk-sugar" },
+        { kind: "ingredient", id: "ingredient-eggs" },
+        { kind: "ingredient", id: "ingredient-vanilla" },
+      ],
+    },
+    {
+      id: "step-fold",
+      label: "Fold dry into wet",
+      details:
+        "Add the dry mixture in two additions. Fold with a spatula, scraping the bottom and sides after each addition.",
+      timing: { minimum: 45, maximum: 60, unit: "seconds" },
+      tool: "Rubber spatula",
+      setting: "Gentle",
+      cue: "No dry pockets remain; stop as soon as the batter is uniformly dark.",
+      inputs: [
+        { kind: "step", id: "step-whisk-dry" },
+        { kind: "step", id: "step-whisk-eggs" },
+      ],
+    },
+    {
       id: "step-bake",
       label: "Bake",
-      details: "Cool before slicing",
+      details:
+        "Spread the batter evenly in the prepared 8×8-in pan and bake on the center rack. Begin checking at 30 minutes.",
+      timing: { minimum: 30, maximum: 35, unit: "minutes" },
+      tool: "8×8-in pan",
+      setting: "Center rack",
+      cue: "Edges are set and a center toothpick has moist crumbs but no liquid batter.",
       inputs: [{ kind: "step", id: "step-fold" }],
-      durationMinutes: 35,
       temperature: "350°F / 170°C",
     },
+    {
+      id: "step-cool",
+      label: "Cool & slice",
+      details: "Cool in the pan on a rack before lifting out and slicing.",
+      timing: { minimum: 45, maximum: 60, unit: "minutes" },
+      tool: "Wire rack",
+      setting: "Undisturbed",
+      cue: "Pan is barely warm and the center holds a clean edge when sliced.",
+      inputs: [{ kind: "step", id: "step-bake" }],
+    },
   ],
-  finalStepId: "step-bake",
+  finalStepId: "step-cool",
 };

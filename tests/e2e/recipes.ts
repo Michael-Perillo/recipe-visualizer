@@ -41,10 +41,43 @@ const deepIngredients = Array.from({ length: 8 }, (_, index) => ({
   visualStyle: "auto" as const,
 }));
 
+const boundedMethod = Array.from(
+  { length: 30 },
+  () => "Work carefully until the texture is even and fully combined.",
+)
+  .join(" ")
+  .slice(0, 240);
+const boundedCue = Array.from(
+  { length: 35 },
+  () => "Look for a clearly defined visual change before continuing.",
+)
+  .join(" ")
+  .slice(0, 240);
+const boundedPrepNote = Array.from(
+  { length: 30 },
+  () => "Arrange each measured ingredient before beginning the first operation.",
+)
+  .join(" ")
+  .slice(0, 240);
+
 const deepSteps = Array.from({ length: 8 }, (_, index) => ({
   id: `step-deep-${index + 1}`,
   label: index === 7 ? "Finish and plate" : `Transform layer ${index + 1}`,
-  details: "Work carefully until the texture is even and fully combined.",
+  details:
+    index === 0
+      ? boundedMethod
+      : "Work carefully until the texture is even and fully combined.",
+  timing: {
+    minimum: index + 1,
+    maximum: index + 2,
+    unit: "minutes" as const,
+  },
+  tool: "Wide mixing bowl",
+  setting: index % 2 === 0 ? "Gentle" : "Brisk",
+  cue:
+    index === 0
+      ? boundedCue
+      : "Continue when the texture is even and fully combined.",
   inputs:
     index === 0
       ? [{ kind: "ingredient" as const, id: deepIngredients[0].id }]
@@ -62,8 +95,9 @@ export const DEEP_RECIPE: RecipeDocumentV1 = {
   baseServings: 4,
   outputLabel: "layered pantry supper",
   prepNotes: [
-    "Arrange every measured ingredient before beginning the first operation.",
+    boundedPrepNote,
     "Use a wide work surface so each preparation remains easy to identify.",
+    "Keep a clean towel and heat-safe resting place within reach before starting.",
   ],
   ingredients: deepIngredients,
   steps: deepSteps,
