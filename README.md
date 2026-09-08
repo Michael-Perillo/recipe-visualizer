@@ -11,6 +11,9 @@ Recipes stay in the browser. They can be scaled to a target serving count and
 exported as portable Recipe Visualizer JSON, self-contained SVG, or high-
 resolution PNG files.
 
+[Open the app](https://recipe-visualizer-tan.vercel.app/) ·
+[Explore Storybook](https://recipe-visualizer-storybook.vercel.app/)
+
 ## What it does
 
 - Builds recipes from ingredients, prep notes, and dependency-linked
@@ -268,8 +271,9 @@ Node.js 22, `npm ci`, and actions pinned to full commit SHAs:
 - **Storybook:** build `storybook-static` once, then run story, interaction,
   accessibility, storage-isolation, and visual tests against that build.
 
-In each project's **Settings → Deployment Checks → Add Checks**, select
-**GitHub** as the provider and require the checks listed in the settings table.
+In each project's **Settings → Build and Deployment → Deployment Checks →
+Add Checks**, select **GitHub** as the provider, expand **Select checks to add**,
+and enable **Show All Checks** to select the checks listed in the settings table.
 Keep automatic production domain assignment enabled. These gates are configured
 in Vercel, not by the workflow itself: **Quality + App** controls app production,
 while **Quality + Storybook** controls Storybook production. Keep the job names
@@ -291,16 +295,19 @@ cover npm dependencies and GitHub Actions.
 
 ### Initial setup and verification
 
-1. Connect the checkout to the intended GitHub repository, preserving its source
-   visibility. Commit the complete app and Storybook source, including this
-   workflow, and get all three checks passing on `main` before the first import.
+1. The source repository is
+   [Michael-Perillo/recipe-visualizer](https://github.com/Michael-Perillo/recipe-visualizer)
+   (private). Vercel's GitHub App is limited to this repository. Keep source
+   visibility separate from public site access.
 2. Import the repository twice with the project settings above, configure the
    GitHub deployment checks, and make both projects publicly accessible.
 3. Use a subsequent deployment to confirm the gates are active: the production
    domain should stay on its previous version while required checks are pending
    or failing. Before sharing the sites, run a failure drill on a temporary
-   validation branch: select it as production in both projects, add a failing
-   app-only browser assertion there, and dispatch CI on that branch. Confirm
+   validation branch: push it first, then select it under **Settings →
+   Environments → Production → Branch Tracking** in both projects. Add a failing
+   app-only browser assertion there, push a new commit, and dispatch CI on that
+   branch. Confirm
    app promotion is blocked while Storybook remains eligible. Restore both
    production branches to `main` and redeploy the passing commit afterward.
    Never merge the intentional failure into `main`.
@@ -316,8 +323,18 @@ cover npm dependencies and GitHub Actions.
 
 | Deployment | Verified production URL |
 | --- | --- |
-| Standalone app | Pending GitHub/Vercel setup and signed-out verification |
-| Storybook | Pending GitHub/Vercel setup and signed-out verification |
+| Standalone app | [recipe-visualizer-tan.vercel.app](https://recipe-visualizer-tan.vercel.app/) |
+| Storybook | [recipe-visualizer-storybook.vercel.app](https://recipe-visualizer-storybook.vercel.app/) |
+
+The initial gate drill on September 8, 2026 verified independent production
+promotion. Both Vercel builds waited while GitHub checks ran. In
+[the validation run](https://github.com/Michael-Perillo/recipe-visualizer/actions/runs/34289752098),
+**Quality** and **Storybook** passed and the intentional **App** assertion failed.
+Vercel marked the app deployment **Checks Failed** and retained its previous
+production files; Storybook promoted successfully. An unauthenticated request
+to a temporary marker confirmed 404 on app production and 200 on Storybook
+production. The failure and marker stay on `codex/deployment-gate-drill` and
+must never be merged. Both projects were restored to track `main` afterward.
 
 Recipe libraries are scoped to the browser origin. Production and preview URLs
 have separate local libraries, and Storybook uses only in-memory fixtures. Use
