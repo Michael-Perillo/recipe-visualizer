@@ -1,11 +1,62 @@
 import manropeFontUrl from "@fontsource-variable/manrope/files/manrope-latin-wght-normal.woff2?url";
-import type {
-  DiagramView,
-  RecipeDocumentV1,
-  Theme,
-} from "../domain/types";
+import type { DiagramView, RecipeDocumentV1, Theme } from "../domain/types";
+import { createElement } from "react";
+import { buildRecipeGraph } from "../domain/recipe";
+import {
+  DiagramMethodKey,
+  getMethodKeyLayout,
+  PALETTES,
+} from "../components/diagram/shared";
 
 let embeddedFontData: string | null = null;
+
+/** Export a complete sheet at a consistent type scale, independent of map pan/zoom. */
+export async function composeRecipeExport(
+  svg: SVGSVGElement,
+  recipe: RecipeDocumentV1,
+  theme: Theme,
+): Promise<SVGSVGElement> {
+  const graph = buildRecipeGraph(recipe);
+  if (!graph) throw new Error("Connect the recipe before exporting.");
+  const clone = svg.cloneNode(true) as SVGSVGElement;
+  const [, , width, graphHeight] = (svg.getAttribute("viewBox") ?? "")
+    .split(/\s+/)
+    .map(Number);
+  if (
+    ![width, graphHeight].every((value) => Number.isFinite(value) && value > 0)
+  ) {
+    throw new Error("The diagram has invalid export dimensions.");
+  }
+  const layout = getMethodKeyLayout(graph.stepOrder, width);
+  // Load the static renderer only when exporting, not in the initial app bundle.
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const markup = renderToStaticMarkup(
+    createElement(DiagramMethodKey, {
+      layout,
+      width,
+      y: graphHeight + 16,
+      palette: PALETTES[theme],
+    }),
+  );
+  const parsed = new DOMParser().parseFromString(
+    `<svg xmlns="http://www.w3.org/2000/svg">${markup}</svg>`,
+    "image/svg+xml",
+  );
+  clone.append(
+    document.importNode(parsed.documentElement.firstElementChild!, true),
+  );
+  const height = graphHeight + layout.height + 32;
+  clone.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  const background = document.createElementNS(
+    "http://www.w3.org/2000/svg",
+    "rect",
+  );
+  background.setAttribute("width", String(width));
+  background.setAttribute("height", String(height));
+  background.setAttribute("fill", PALETTES[theme].bg);
+  clone.prepend(background);
+  return clone;
+}
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -44,22 +95,22 @@ export function buildExportName(
   return `${slugify(recipe.title)}-${view}-serves-${servings}-${theme}.${extension}`;
 }
 
-export async function serializeSvg(svg: SVGSVGElement): Promise<string> {
+export async function serializeSvg(
+  svg: SVGSVGElement,
+  outputSize?: { width: number; height: number },
+): Promise<string> {
   const clone = svg.cloneNode(true) as SVGSVGElement;
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
 
   const viewBox = clone.viewBox.baseVal;
   if (viewBox.width && viewBox.height) {
-    clone.setAttribute("width", String(viewBox.width));
-    clone.setAttribute("height", String(viewBox.height));
+    clone.setAttribute("width", String(outputSize?.width ?? viewBox.width));
+    clone.setAttribute("height", String(outputSize?.height ?? viewBox.height));
   }
 
   const fontData = await getEmbeddedFontData();
-  const style = document.createElementNS(
-    "http://www.w3.org/2000/svg",
-    "style",
-  );
+  const style = document.createElementNS("http://www.w3.org/2000/svg", "style");
   style.textContent = `
     @font-face {
       font-family: "Manrope Variable";
@@ -105,12 +156,39 @@ function loadImage(url: string): Promise<HTMLImageElement> {
   });
 }
 
+export function getPngDimensions(
+  width: number,
+  height: number,
+  requestedScale = 2,
+) {
+  if (
+    ![width, height, requestedScale].every(
+      (value) => Number.isFinite(value) && value > 0,
+    )
+  ) {
+    throw new Error("The diagram has invalid export dimensions.");
+  }
+  // Responsive single-column methods can be very tall. Bound both the canvas
+  // and SVG decoder instead of asking mobile browsers for enormous bitmaps.
+  const scale = Math.min(
+    requestedScale,
+    16384 / Math.max(width, height),
+    Math.sqrt(32_000_000 / (width * height)),
+  );
+  return {
+    width: Math.max(1, Math.floor(width * scale)),
+    height: Math.max(1, Math.floor(height * scale)),
+  };
+}
+
 export async function downloadPng(
   svg: SVGSVGElement,
   filename: string,
   scale = 2,
 ): Promise<void> {
-  const serialized = await serializeSvg(svg);
+  const viewBox = svg.viewBox.baseVal;
+  const size = getPngDimensions(viewBox.width, viewBox.height, scale);
+  const serialized = await serializeSvg(svg, size);
   const svgBlob = new Blob([serialized], {
     type: "image/svg+xml;charset=utf-8",
   });
@@ -118,10 +196,9 @@ export async function downloadPng(
 
   try {
     const image = await loadImage(url);
-    const viewBox = svg.viewBox.baseVal;
     const canvas = document.createElement("canvas");
-    canvas.width = Math.ceil(viewBox.width * scale);
-    canvas.height = Math.ceil(viewBox.height * scale);
+    canvas.width = size.width;
+    canvas.height = size.height;
     const context = canvas.getContext("2d");
     if (!context) throw new Error("Canvas export is not available.");
     context.drawImage(image, 0, 0, canvas.width, canvas.height);
