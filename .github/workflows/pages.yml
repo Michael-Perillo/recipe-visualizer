@@ -36,6 +36,8 @@ jobs:
         run: npm run typecheck
       - name: Unit and component tests
         run: npm test
+      - name: Build and test component library
+        run: npm run test:storybook
       - name: Build static site
         run: npm run build:pages
       - name: Browser, accessibility, and visual tests
