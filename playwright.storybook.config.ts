@@ -8,6 +8,7 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI ? "github" : "list",
   outputDir: "storybook-test-results",
+  updateSnapshots: "none",
   snapshotPathTemplate:
     "{testDir}/__screenshots__/{platform}/{testFilePath}/{arg}{ext}",
   expect: {

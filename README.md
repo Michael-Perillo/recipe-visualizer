@@ -182,9 +182,9 @@ visual-testing account is required; Storybook telemetry is disabled.
 
 Storybook screenshots are stored by operating system under
 `tests/storybook/__screenshots__/{platform}/` because browser font rendering
-differs between macOS and Linux. Update local baselines with
-`npm run test:storybook -- --update-snapshots` only after reviewing a visual
-change. For Linux, manually run **Generate Storybook snapshots** in GitHub
+differs between macOS and Linux. Build with `npm run build-storybook`, then update
+local baselines with `npm run test:storybook:prepared -- --update-snapshots`
+only after reviewing a visual change. For Linux, manually run **Generate Storybook snapshots** in GitHub
 Actions, download its `storybook-linux-snapshots` artifact into
 `tests/storybook/__screenshots__/linux/`, review the images, and commit them.
 That workflow never commits files or satisfies the **Storybook** production
@@ -334,6 +334,6 @@ other project is unaffected. Verify the stable production URL after rollback.
 Rollback disables automatic production domain assignment. Revert or fix the
 source change in GitHub, wait for the required checks to pass, and use **Undo
 Rollback** to promote the corrected deployment. This also restores automatic
-production assignment for future `main` updates. No recipe data is migrated or deleted by
-a hosting rollback. Keep both projects on Hobby and review usage in the provider
+production assignment for future `main` updates. No recipe data is migrated or
+deleted by a hosting rollback. Keep both projects on Hobby and review usage in the provider
 dashboards rather than enabling paid services to bypass quotas.
