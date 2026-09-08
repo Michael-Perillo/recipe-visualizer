@@ -1,0 +1,2 @@
+Independent deployment gate validation, 2026-09-08.
+This marker belongs only to the disposable codex/deployment-gate-drill branch.
