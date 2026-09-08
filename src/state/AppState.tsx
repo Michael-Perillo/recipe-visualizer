@@ -13,10 +13,7 @@ import {
 import { DEFAULT_RECIPE } from "../data/defaultRecipe";
 import { RECIPE_LIMITS, normalizeServings } from "../domain/limits";
 import { cloneRecipe, createBlankRecipe, makeId } from "../domain/recipe";
-import {
-  persistedLibrarySchema,
-  recipeDocumentSchema,
-} from "../domain/schema";
+import { persistedLibrarySchema, recipeDocumentSchema } from "../domain/schema";
 import type {
   DiagramView,
   MobilePanel,
@@ -53,7 +50,7 @@ type AppAction =
   | { type: "replace-library"; state: AppState }
   | { type: "reset-library"; state: AppState };
 
-type SaveStatus = "saving" | "saved" | "unavailable";
+type SaveStatus = "saving" | "saved" | "unavailable" | "demo";
 
 export type RecoveryNotice = {
   raw?: string;
@@ -155,8 +152,7 @@ function salvageLibrary(value: unknown): AppState | null {
       ? candidate.activeRecipeId
       : recipes[0].id;
   const rawServings =
-    candidate.servingsByRecipe &&
-    typeof candidate.servingsByRecipe === "object"
+    candidate.servingsByRecipe && typeof candidate.servingsByRecipe === "object"
       ? (candidate.servingsByRecipe as Record<string, unknown>)
       : {};
 
@@ -251,9 +247,7 @@ function getInitialBundle(): InitialBundle {
     }
     return {
       state: fallback,
-      recovery: raw
-        ? { raw, backupAvailable, salvagedRecipes: 0 }
-        : null,
+      recovery: raw ? { raw, backupAvailable, salvagedRecipes: 0 } : null,
       persistenceEnabled: raw ? backupAvailable : false,
       updatedAt: 0,
       shouldPersist: raw ? backupAvailable : false,
@@ -358,18 +352,17 @@ function reducer(state: AppState, action: AppAction): AppState {
       return { ...state, view: action.view };
     case "set-theme":
       return { ...state, theme: action.theme };
-    case "set-servings":
-      {
-        const servings = normalizeServings(action.servings);
-        if (servings === undefined) return state;
+    case "set-servings": {
+      const servings = normalizeServings(action.servings);
+      if (servings === undefined) return state;
       return {
         ...state,
         servingsByRecipe: {
           ...state.servingsByRecipe,
-            [action.recipeId]: servings,
+          [action.recipeId]: servings,
         },
       };
-      }
+    }
     case "set-mobile-panel":
       return { ...state, mobilePanel: action.panel };
     case "toggle-editor":
@@ -382,18 +375,44 @@ function reducer(state: AppState, action: AppAction): AppState {
   }
 }
 
-export function AppStateProvider({ children }: { children: ReactNode }) {
-  const [initial] = useState(getInitialBundle);
+export function AppStateProvider({
+  children,
+  initialLibrary,
+  storage = "local",
+}: {
+  children: ReactNode;
+  /** Isolated examples never read, write, reset, or subscribe to browser storage. */
+  storage?: "local" | "memory";
+  /** Read once on mount. Remount the provider to load a different fixture. */
+  initialLibrary?: PersistedLibraryV1;
+}) {
+  const [memoryOnly] = useState(storage === "memory");
+  const [initial] = useState<InitialBundle>(() =>
+    memoryOnly
+      ? {
+          state: initialLibrary
+            ? libraryToState(initialLibrary)
+            : createDefaultState(),
+          recovery: null,
+          persistenceEnabled: false,
+          updatedAt: 0,
+          shouldPersist: false,
+        }
+      : getInitialBundle(),
+  );
   const [state, baseDispatch] = useReducer(reducer, initial.state);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(
-    initial.persistenceEnabled
-      ? initial.shouldPersist
-        ? "saving"
-        : "saved"
-      : "unavailable",
+    memoryOnly
+      ? "demo"
+      : initial.persistenceEnabled
+        ? initial.shouldPersist
+          ? "saving"
+          : "saved"
+        : "unavailable",
   );
-  const [recoveryNotice, setRecoveryNotice] =
-    useState<RecoveryNotice | null>(initial.recovery);
+  const [recoveryNotice, setRecoveryNotice] = useState<RecoveryNotice | null>(
+    initial.recovery,
+  );
   const [persistenceEnabled, setPersistenceEnabled] = useState(
     initial.persistenceEnabled,
   );
@@ -465,12 +484,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     state.servingsByRecipe[activeRecipe.id] ?? activeRecipe.baseServings;
 
   useEffect(() => {
+    if (memoryOnly) return;
     document.documentElement.classList.toggle("dark", state.theme === "dark");
     document.documentElement.dataset.theme = state.theme;
     document
       .querySelector('meta[name="theme-color"]')
       ?.setAttribute("content", state.theme === "dark" ? "#11120f" : "#f4f1e9");
-  }, [state.theme]);
+  }, [memoryOnly, state.theme]);
 
   useEffect(() => {
     if (skipNextSaveRef.current) {
@@ -516,6 +536,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [flushState]);
 
   useEffect(() => {
+    if (memoryOnly) return;
     const handleStorage = (event: StorageEvent) => {
       if (event.key !== STORAGE_KEY || !event.newValue) return;
       try {
@@ -547,11 +568,15 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     };
     window.addEventListener("storage", handleStorage);
     return () => window.removeEventListener("storage", handleStorage);
-  }, [updateSaveStatus]);
+  }, [memoryOnly, updateSaveStatus]);
 
   const dismissRecovery = useCallback(() => setRecoveryNotice(null), []);
 
   const resetLocalData = useCallback(() => {
+    if (memoryOnly) {
+      baseDispatch({ type: "reset-library", state: createDefaultState() });
+      return;
+    }
     try {
       window.localStorage.removeItem(STORAGE_KEY);
       window.localStorage.removeItem(RECOVERY_KEY);
@@ -569,7 +594,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       setPersistenceEnabled(false);
       updateSaveStatus("unavailable");
     }
-  }, [updateSaveStatus]);
+  }, [memoryOnly, updateSaveStatus]);
 
   const useExternalChanges = useCallback(() => {
     if (!externalConflict) return;
