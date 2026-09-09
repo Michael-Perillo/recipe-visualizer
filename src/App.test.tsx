@@ -191,7 +191,7 @@ describe("Recipe Visualizer workspace", () => {
     const cue = screen.getByLabelText("Whisk dry cue");
 
     await user.clear(method);
-    await user.type(method, "Whisk all dry ingredients together thoroughly.");
+    await user.paste("Whisk all dry ingredients together thoroughly.");
     await user.clear(minimum);
     await user.type(minimum, "20");
     await user.type(maximum, "40");
@@ -202,7 +202,7 @@ describe("Recipe Visualizer workspace", () => {
     await user.clear(setting);
     await user.type(setting, "Quickly");
     await user.clear(cue);
-    await user.type(cue, "No visible flour pockets.");
+    await user.paste("No visible flour pockets.");
 
     await waitFor(() => {
       const saved = JSON.parse(
