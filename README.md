@@ -172,6 +172,15 @@ and serving preferences unchanged; export the old JSON first to keep a backup.
 
 Design tokens live in `src/styles/design-system.css`; reusable buttons,
 statuses, section headings, and view selectors live in `src/components/ui.tsx`.
+The shared `src/components/Select.tsx` uses Base UI for keyboard and focus
+behavior. Recipe selection, ingredient line styles, timing units, and final
+operations all use its themed popup. Menus inherit the local Paper/Ink theme,
+escape the editor's scroll panel, and scroll within the viewport on mobile.
+[Controls → Select](https://recipe-visualizer-storybook.vercel.app/?path=/story/controls-select--default)
+includes default, disabled, clearable, long-library, and keyboard examples.
+Use arrow keys or type an option's label to navigate, Enter to select, and
+Escape to dismiss without changing the selection. Disabled options remain
+discoverable by keyboard but cannot be selected.
 The system uses a 40 px control rhythm, 10 px control corners, 16 px panel
 corners, quiet section icons, visible keyboard focus, and lime for selected
 states and primary actions. Keep the SVG palette in `diagram/shared.tsx`
