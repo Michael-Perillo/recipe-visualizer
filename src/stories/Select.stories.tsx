@@ -109,7 +109,7 @@ export const KeyboardSelection: Story = {
     await userEvent.keyboard("{End}");
     await userEvent.keyboard("{Enter}");
     await expect(trigger).toHaveTextContent("Seconds");
-    await expect(page.getByRole("option", { name: "Hours", exact: true })).toHaveAttribute("aria-disabled", "true");
+    await expect(page.getByRole("option", { name: "Hours" })).toHaveAttribute("aria-disabled", "true");
     await userEvent.keyboard("{ArrowUp}{Enter}");
     await waitFor(() => expect(trigger).toHaveTextContent("Minutes"));
     await userEvent.keyboard("{ArrowDown}");
