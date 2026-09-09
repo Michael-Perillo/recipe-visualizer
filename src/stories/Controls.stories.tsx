@@ -3,6 +3,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 import { expect, fn, userEvent, within } from "storybook/test";
 import { Download, Plus, Trash2 } from "lucide-react";
 import { Button, SegmentedControl, StatusBadge } from "../components/ui";
+import { Select } from "../components/Select";
 
 const meta = {
   title: "Controls/Button",
@@ -84,9 +85,13 @@ function ControlExamples() {
       </label>
       <label className="w-full max-w-sm">
         <span className="rv-label">Timing unit · disabled</span>
-        <select className="rv-field" disabled>
-          <option>Minutes</option>
-        </select>
+        <Select
+          aria-label="Timing unit"
+          value="minutes"
+          options={[{ value: "minutes", label: "Minutes" }]}
+          onChange={() => {}}
+          disabled
+        />
       </label>
     </div>
   );
