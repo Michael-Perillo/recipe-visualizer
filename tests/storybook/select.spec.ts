@@ -11,6 +11,7 @@ for (const theme of ["light", "dark"]) {
     await expect(page.getByRole("option", { name: "Minutes", exact: true })).toHaveAttribute("aria-selected", "true");
     const accessibility = await new AxeBuilder({ page })
       .include(".story-surface")
+      .include(".rv-select-popup")
       // Focus guards immediately forward focus; test their Tab behavior below.
       .exclude("[data-base-ui-focus-guard]")
       .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
@@ -22,6 +23,24 @@ for (const theme of ["light", "dark"]) {
     await expect(trigger).toHaveText("Hours");
     await expect(trigger).toBeFocused();
     await expect(page.getByRole("listbox")).toBeHidden();
+  });
+}
+
+for (const theme of ["light", "dark"]) {
+  test(`docs popup escapes the canvas and keeps its ${theme} theme`, async ({ page }) => {
+    await page.goto(`/iframe.html?id=controls-select--docs&viewMode=docs&globals=theme:${theme}`);
+    await expect(page.locator(".sbdocs-wrapper")).toBeVisible();
+    const trigger = page.getByRole("combobox", { name: "Timing unit" }).first();
+    await trigger.click();
+    const popup = page.locator(".rv-select-popup");
+    await expect(popup).toBeVisible();
+    await expect(popup).toHaveCSS("background-color", theme === "dark" ? "rgb(36, 39, 32)" : "rgb(255, 254, 250)");
+    expect((await popup.boundingBox())!.height).toBeGreaterThan(100);
+    // A real click also verifies the options are not clipped or covered by
+    // Storybook's following controls table.
+    await page.getByRole("option", { name: "Hours", exact: true }).click();
+    await expect(trigger).toHaveText("Hours");
+    await expect(trigger).toBeFocused();
   });
 }
 
