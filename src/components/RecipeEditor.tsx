@@ -28,6 +28,7 @@ import type {
 import { INGREDIENT_LINE_STYLE_LABELS } from "../domain/types";
 import { useAppState } from "../state/AppState";
 import { Button, SectionHeading, StatusBadge } from "./ui";
+import { Select } from "./Select";
 
 const fieldClass = "rv-field";
 const labelClass = "rv-label";
@@ -182,34 +183,28 @@ function IngredientEditor({
         </label>
         <label>
           <span className={labelClass}>Line style</span>
-          <select
+          <Select
             aria-label={`${ingredient.name || "Ingredient"} line style`}
-            className={fieldClass}
             value={
               ingredient.visualStyle === "featured"
                 ? "auto"
                 : ingredient.visualStyle
             }
-            onChange={(event) =>
+            onChange={(style) =>
               setIngredient((value) => ({
                 ...value,
                 featured:
                   value.featured === true || value.visualStyle === "featured",
-                visualStyle: event.target.value as Exclude<
+                visualStyle: style as Exclude<
                   IngredientStyle,
                   "featured"
                 >,
               }))
             }
-          >
-            {Object.entries(INGREDIENT_LINE_STYLE_LABELS).map(
-              ([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ),
+            options={Object.entries(INGREDIENT_LINE_STYLE_LABELS).map(
+              ([value, label]) => ({ value, label }),
             )}
-          </select>
+          />
         </label>
         <label className="flex min-h-11 items-center gap-2 self-end rounded-xl border border-black/10 bg-white px-3 py-2.5 text-xs font-bold text-stone-700 dark:border-white/10 dark:bg-white/[0.055] dark:text-stone-300">
           <input
@@ -603,14 +598,13 @@ function StepEditor({
           </label>
           <label>
             <span className="sr-only">Timing unit</span>
-            <select
+            <Select
               aria-label={`${step.label || "Operation"} timing unit`}
-              className={fieldClass}
               value={timing?.unit ?? "minutes"}
               disabled={!timing}
-              onChange={(event) => {
+              onChange={(value) => {
                 if (!timing) return;
-                const unit = event.target.value as TimingUnit;
+                const unit = value as TimingUnit;
                 if (
                   normalizeTimingValue(timing.minimum, unit) === undefined ||
                   (timing.maximum !== undefined &&
@@ -620,11 +614,12 @@ function StepEditor({
                 }
                 setTiming({ ...timing, unit });
               }}
-            >
-              <option value="seconds">Seconds</option>
-              <option value="minutes">Minutes</option>
-              <option value="hours">Hours</option>
-            </select>
+              options={[
+                { value: "seconds", label: "Seconds" },
+                { value: "minutes", label: "Minutes" },
+                { value: "hours", label: "Hours" },
+              ]}
+            />
           </label>
         </div>
       </fieldset>
@@ -935,21 +930,20 @@ export function RecipeEditor() {
         {recipe.steps.length > 0 ? (
           <label className="mt-4 block">
             <span className={labelClass}>Final result comes from</span>
-            <select
-              className={fieldClass}
+            <Select
               aria-label="Final operation"
               value={recipe.finalStepId}
-              onChange={(event) =>
-                onChange({ ...recipe, finalStepId: event.target.value })
+              onChange={(finalStepId) =>
+                onChange({ ...recipe, finalStepId })
               }
-            >
-              <option value="">Choose an operation</option>
-              {recipe.steps.map((step, index) => (
-                <option key={step.id} value={step.id}>
-                  {index + 1}. {step.label || "Unnamed operation"}
-                </option>
-              ))}
-            </select>
+              options={[
+                { value: "", label: "Choose an operation" },
+                ...recipe.steps.map((step, index) => ({
+                  value: step.id,
+                  label: `${index + 1}. ${step.label || "Unnamed operation"}`,
+                })),
+              ]}
+            />
           </label>
         ) : null}
         <p className="mt-4 rounded-2xl border border-black/[0.06] bg-white/70 p-3 text-xs font-semibold leading-relaxed text-stone-600 dark:border-white/[0.06] dark:bg-white/[0.03] dark:text-stone-400">

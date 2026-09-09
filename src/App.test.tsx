@@ -157,11 +157,11 @@ describe("Recipe Visualizer workspace", () => {
 
     expect(
       screen.getByLabelText("fresh brewed espresso line style"),
-    ).toHaveValue("liquid");
+    ).toHaveTextContent("Liquid / wave");
     expect(
       screen.getByLabelText("Feature fresh brewed espresso"),
     ).toBeChecked();
-    expect(screen.getByLabelText("cocoa powder line style")).toHaveValue("dry");
+    expect(screen.getByLabelText("cocoa powder line style")).toHaveTextContent("Dry / arrow");
 
     await user.click(screen.getByLabelText("Feature fresh brewed espresso"));
 
@@ -195,7 +195,8 @@ describe("Recipe Visualizer workspace", () => {
     await user.clear(minimum);
     await user.type(minimum, "20");
     await user.type(maximum, "40");
-    await user.selectOptions(unit, "seconds");
+    await user.click(unit);
+    await user.click(await screen.findByRole("option", { name: "Seconds" }));
     await user.clear(tool);
     await user.type(tool, "Fine whisk");
     await user.clear(setting);

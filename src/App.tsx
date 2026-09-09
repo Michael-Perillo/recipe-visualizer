@@ -28,6 +28,7 @@ import { RecipeDiagram } from "./components/diagram/RecipeDiagram";
 import { RecipeEditor } from "./components/RecipeEditor";
 import { DEFAULT_RECIPE } from "./data/defaultRecipe";
 import { SegmentedControl, StatusBadge } from "./components/ui";
+import { Select } from "./components/Select";
 import { RECIPE_LIMITS, normalizeServings } from "./domain/limits";
 import { normalizeRecipeStepOrder, validateRecipe } from "./domain/recipe";
 import { recipeDocumentSchema } from "./domain/schema";
@@ -155,25 +156,21 @@ function LibraryControls() {
   return (
     <>
       <div className="flex min-w-0 items-center gap-1.5">
-        <label className="relative min-w-0">
-          <span className="sr-only">Active recipe</span>
-          <BookOpen className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-stone-400" />
-          <select
+        <div className="min-w-0 max-w-48 sm:max-w-60">
+          <Select
             aria-label="Active recipe"
             value={activeRecipeId}
-            onChange={(event) =>
-              dispatch({ type: "set-active", recipeId: event.target.value })
+            onChange={(recipeId) =>
+              dispatch({ type: "set-active", recipeId })
             }
-            className="h-10 max-w-48 appearance-none truncate rounded-xl border border-black/[0.08] bg-white pl-9 pr-8 text-xs font-extrabold outline-none focus:border-lime-500 focus:ring-4 focus:ring-lime-400/20 dark:border-white/10 dark:bg-white/[0.055] sm:max-w-60"
-          >
-            {recipes.map((recipe) => (
-              <option key={recipe.id} value={recipe.id}>
-                {recipe.title || "Untitled recipe"}
-              </option>
-            ))}
-          </select>
-          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 size-3.5 -translate-y-1/2 text-stone-400" />
-        </label>
+            className="rv-select-recipe"
+            icon={<BookOpen size={16} />}
+            options={recipes.map((recipe) => ({
+              value: recipe.id,
+              label: recipe.title || "Untitled recipe",
+            }))}
+          />
+        </div>
 
         <button
           type="button"

@@ -10,6 +10,45 @@ test.beforeEach(async ({ page }) => {
   await page.reload();
 });
 
+test("themed dropdowns edit and persist recipes on desktop and mobile", async ({ page }, testInfo) => {
+  const showEditor = async () => {
+    if (testInfo.project.name.includes("mobile")) {
+      await page.getByRole("navigation", { name: "Mobile workspace view" })
+        .getByRole("button", { name: "editor", exact: true }).click();
+    }
+  };
+  await showEditor();
+  const style = page.getByRole("combobox", { name: "cocoa powder line style" });
+  await style.click();
+  await page.getByRole("option", { name: "Neutral / line", exact: true }).click();
+  await expect(style).toHaveText("Neutral / line");
+  const timing = page.getByRole("combobox", { name: "Whisk dry timing unit" });
+  await timing.click();
+  await page.getByRole("option", { name: "Seconds", exact: true }).click();
+  await expect(timing).toHaveText("Seconds");
+  const final = page.getByRole("combobox", { name: "Final operation", exact: true });
+  const originalFinal = (await final.textContent())!;
+  await final.click();
+  await page.getByRole("option", { name: "Choose an operation", exact: true }).click();
+  await expect(final).toHaveText("Choose an operation");
+  await final.click();
+  await page.getByRole("option", { name: originalFinal, exact: true }).click();
+  await page.reload();
+  await showEditor();
+  await expect(style).toHaveText("Neutral / line");
+  await expect(timing).toHaveText("Seconds");
+  await expect(final).toHaveText(originalFinal);
+
+  await page.getByRole("button", { name: "New recipe", exact: true }).click();
+  await expect(page.getByLabel("Recipe title")).toHaveValue("Untitled recipe");
+  const library = page.getByRole("combobox", { name: "Active recipe" });
+  await library.click();
+  await page.getByRole("option", { name: "Espresso Brownies", exact: true }).click();
+  await expect(page.getByLabel("Recipe title")).toHaveValue("Espresso Brownies");
+  await showEditor();
+  await expect(style).toHaveText("Neutral / line");
+});
+
 test("keeps flow result labels inside the graph border", async ({ page }) => {
   for (const recipe of [
     DEFAULT_RECIPE,
@@ -390,7 +429,7 @@ test("rejects invalid imports and normalizes valid unordered imports", async ({
   );
   await expect(page.getByLabel("Operation 1 action")).toHaveValue("Whisk dry");
   await expect(page.getByLabel("Bake minimum timing")).toHaveValue("35");
-  await expect(page.getByLabel("Bake timing unit")).toHaveValue("minutes");
+  await expect(page.getByRole("combobox", { name: "Bake timing unit" })).toHaveText("Minutes");
   await expect(page.getByTestId("recipe-artboard")).toBeVisible();
 });
 
