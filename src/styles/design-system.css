@@ -115,6 +115,104 @@
 textarea.rv-field {
   resize: vertical;
 }
+.rv-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+}
+.rv-select-trigger:hover:not(:disabled),
+.rv-select-trigger[data-popup-open] {
+  border-color: var(--rv-focus);
+}
+.rv-select-value {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rv-select-leading,
+.rv-select-chevron {
+  display: flex;
+  flex-shrink: 0;
+  color: var(--rv-muted);
+}
+.rv-select-trigger[data-popup-open] .rv-select-chevron {
+  transform: rotate(180deg);
+}
+.rv-select-positioner {
+  z-index: 100;
+  outline: none;
+}
+.rv-select-popup {
+  position: relative;
+  width: max(var(--anchor-width), 180px);
+  max-width: var(--available-width);
+  overflow: hidden;
+  border: 1px solid var(--rv-line);
+  border-radius: 12px;
+  background: var(--rv-field);
+  color: var(--rv-ink);
+  box-shadow: 0 12px 36px rgb(0 0 0 / 18%);
+}
+.rv-select-list {
+  max-height: min(320px, var(--available-height));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  scroll-padding: 5px;
+}
+.rv-select-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 16px;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  padding: 10px;
+  border-radius: 7px;
+  font-size: 13px;
+  line-height: 1.5;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  user-select: none;
+}
+.rv-select-option[data-selected] {
+  background: var(--rv-success-bg);
+  color: var(--rv-success-ink);
+}
+.rv-select-option[data-highlighted] {
+  outline: none;
+  background: var(--rv-accent);
+  color: var(--rv-accent-ink);
+}
+.rv-select-option[data-disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.rv-select-check {
+  display: flex;
+}
+.rv-select-scroll-arrow {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  right: 0;
+  display: grid;
+  height: 24px;
+  place-items: center;
+  background: var(--rv-field);
+  color: var(--rv-muted);
+}
+.rv-select-scroll-arrow[data-direction="up"] {
+  top: 0;
+  border-bottom: 1px solid var(--rv-line);
+}
+.rv-select-scroll-arrow[data-direction="down"] {
+  bottom: 0;
+  border-top: 1px solid var(--rv-line);
+}
 .rv-label,
 .rv-eyebrow {
   display: block;
@@ -258,6 +356,10 @@ textarea.rv-field {
 /* Avoid mobile Safari's focus zoom; labels and controls stay comfortably tappable. */
 @media (max-width: 640px) {
   .rv-field {
+    font-size: 16px;
+  }
+  .rv-select-option {
+    min-height: 44px;
     font-size: 16px;
   }
 }
