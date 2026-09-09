@@ -1,4 +1,4 @@
-import { useCallback, useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { Check, ChevronDown, ChevronUp } from "lucide-react";
 
@@ -28,23 +28,27 @@ export function Select({
   icon,
   ...labelProps
 }: SelectProps) {
-  const [portalContainer, setPortalContainer] = useState<HTMLElement | null>(null);
-  const attachTrigger = useCallback((element: HTMLButtonElement | null) => {
-    // Escape the editor's scroll container while inheriting the local theme,
-    // including separate light/dark canvases in Storybook's docs page.
-    setPortalContainer(element?.closest<HTMLElement>(".rv-theme") ?? null);
-  }, []);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [dark, setDark] = useState(false);
 
   return (
     <SelectPrimitive.Root
       value={value}
       items={options}
       onValueChange={(nextValue) => onChange(nextValue ?? "")}
+      onOpenChange={(open) => {
+        if (open) {
+          setDark(
+            triggerRef.current?.closest(".rv-theme, .dark")
+              ?.classList.contains("dark") ?? false,
+          );
+        }
+      }}
       disabled={disabled}
       modal={false}
     >
       <SelectPrimitive.Trigger
-        ref={attachTrigger}
+        ref={triggerRef}
         className={`rv-field rv-select-trigger ${className}`}
         {...labelProps}
       >
@@ -54,7 +58,9 @@ export function Select({
           <ChevronDown size={16} aria-hidden="true" />
         </SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
-      <SelectPrimitive.Portal container={portalContainer}>
+      {/* The body portal escapes transformed/clipped Storybook docs canvases.
+          Carry the trigger's local theme into that separate DOM subtree. */}
+      <SelectPrimitive.Portal className={`rv-theme ${dark ? "dark" : ""}`}>
         <SelectPrimitive.Positioner
           className="rv-select-positioner"
           positionMethod="fixed"
