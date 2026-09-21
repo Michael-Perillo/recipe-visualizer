@@ -4,7 +4,20 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # Keep this aligned with typescript-eslint's TypeScript peer range.
+      # Remove the restriction when the linter supports TypeScript 6.1+.
+      - dependency-name: typescript
+        versions: [">=6.1.0"]
     groups:
+      # First matching group wins; include runtime packages and their types
+      # before the general development dependency group.
+      react:
+        patterns:
+          - react
+          - react-dom
+          - "@types/react"
+          - "@types/react-dom"
       development-dependencies:
         dependency-type: development
 

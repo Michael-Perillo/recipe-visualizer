@@ -204,7 +204,8 @@ gate; the normal CI run verifies the committed baselines.
 
 ### App commands
 
-Use Node.js 22 to match CI:
+Use Node.js 22.22.2 or newer within the 22.x release line to match CI and the
+test tools' minimum supported version:
 
 ```bash
 npm ci
@@ -301,6 +302,12 @@ Disable **Vercel Authentication** under **Settings → Deployment Protection** i
 both projects so production and preview links open without login. Preserve
 Vercel's default fork-deployment approval behavior. Dependabot continues to
 cover npm dependencies and GitHub Actions.
+
+Dependabot groups React, React DOM, and their type packages in one update so
+the runtime versions stay aligned. TypeScript stays on the 6.0 release line
+while `typescript-eslint` requires `<6.1.0`. When the linter supports newer
+TypeScript versions, update the package range and remove the corresponding
+ignore rule in `.github/dependabot.yml` together.
 
 ### Initial setup and verification
 
